@@ -1,0 +1,20 @@
+{
+  "name": "block-physics-demo-v2",
+  "version": "2.0.0-experimental",
+  "description": "",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "check": "node tools/v2_checks.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.21.0",
+    "three": "^0.186.1",
+    "vite": "^8.3.4"
+  },
+  "private": true
+}

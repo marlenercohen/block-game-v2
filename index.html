@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="icon" href="data:," />
+  <title>Block Physics - Version 2 (experimental)</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #e9eaec; font: 13px/1.4 system-ui, sans-serif; color: #333; }
+    canvas { touch-action: none; display: block; width: 100vw; height: 100vh; cursor: default; }
+    .panel { position: fixed; background: rgba(255,255,255,.85); border: 1px solid #ccd; border-radius: 6px; padding: 8px 10px; }
+    #hud { top: 8px; left: 8px; display: grid; gap: 6px; min-width: 190px; }
+    #hud .row { display: flex; gap: 6px; align-items: center; }
+    #hud select, #hud button { font: inherit; padding: 2px 6px; }
+    #hud .stat { display: flex; justify-content: space-between; gap: 10px; }
+    #msg { font-weight: 600; color: #1d7a3a; min-height: 1.4em; }
+    #dl { position: fixed; bottom: 8px; right: 8px; font-size: 11px; opacity: .45; }
+    #dl button { font: inherit; padding: 1px 6px; background: none; border: 1px solid #aab; border-radius: 4px; color: #445; cursor: pointer; }
+    #dl button:hover { opacity: 1; }
+    #dev { bottom: 8px; left: 8px; font-size: 12px; opacity: .8; }
+    #dev summary { cursor: pointer; }
+    #dev label { display: block; margin-top: 4px; }
+    #dev button { font: inherit; margin: 3px 3px 0 0; }
+    #dev, #dl { z-index: 60; }
+    /* session mode (participants): the free-play controls are hidden */
+    body.session #hud .free-only { display: none !important; }
+    body.kiosk #dev, body.kiosk #dl { display: none; }   /* ?kiosk=1 hides the researcher controls from participants (Ctrl+Shift+D still downloads the data) */
+    body.session #hud { background: none; border: none; min-width: 0; padding: 4px 8px; font-size: 14px; }
+    /* full-screen screens: instruction cards, the central start cross, the end screen */
+    #screen { position: fixed; inset: 0; background: #e9eaec; display: flex; align-items: center; justify-content: center; z-index: 50; }
+    #screen.hidden, .hidden { display: none !important; }
+    #card, #endBox { max-width: 560px; background: #fff; border: 1px solid #ccd; border-radius: 12px; padding: 28px 34px; text-align: left; box-shadow: 0 4px 24px rgba(0,0,0,.08); }
+    #card h2, #endBox h2 { margin: 0 0 12px; font-size: 22px; color: #2b2f36; }
+    #card p, #endBox p { margin: 0 0 18px; font-size: 17px; line-height: 1.5; color: #333; white-space: pre-line; }
+    #card button, #endBox button { font: inherit; font-size: 16px; padding: 8px 22px; border-radius: 8px; border: 1px solid #5b6b8c; background: #3d5a99; color: #fff; cursor: pointer; margin-right: 8px; }
+    #endBox button.secondary { background: #fff; color: #3d5a99; }
+    #crossBtn { position: relative; width: 220px; height: 220px; border: none; background: transparent; cursor: pointer; padding: 0; }
+    #crossBtn::before, #crossBtn::after { content: ''; position: absolute; background: #2b2f36; left: 50%; top: 50%; transform: translate(-50%, -50%); border-radius: 3px; }
+    #crossBtn::before { width: 96px; height: 10px; }
+    #crossBtn::after { width: 10px; height: 96px; }
+    #crossHint { position: absolute; left: 50%; top: calc(50% + 150px); transform: translateX(-50%); font-size: 18px; color: #2b2f36; background: rgba(255,255,255,.85); border: 1px solid #ccd; border-radius: 10px; padding: 8px 18px; }
+    #hintBar { position: fixed; left: 50%; bottom: 36px; transform: translateX(-50%); background: rgba(255,255,255,.92); border: 1px solid #ccd; border-radius: 10px; padding: 8px 18px; font-size: 16px; color: #2b2f36; z-index: 20; }
+    #skipBtn { position: fixed; right: 16px; bottom: 44px; font: inherit; font-size: 14px; padding: 6px 14px; border-radius: 8px; border: 1px solid #aab; background: #fff; color: #445; cursor: pointer; z-index: 20; }
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="hud" class="panel">
+    <div class="row free-only"><select id="tower"></select></div>
+    <div class="row free-only"><button id="reset">Reset tower</button><button id="pause">Pause</button></div>
+    <label class="free-only" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="demo" /> Demo Mode</label>
+    <div id="trialInfo" class="hidden" style="font-weight:600"></div>
+    <div class="stat"><span>Blocks remaining</span><b id="remaining">-</b></div>
+    <div class="stat free-only"><span>Actions</span><b id="actions">0</b></div>
+    <div class="stat free-only"><span>Status</span><span id="status">-</span></div>
+    <div id="msg"></div>
+  </div>
+  <div id="hintBar" class="hidden"></div>
+  <button id="skipBtn" class="hidden">Next tower</button>
+  <div id="screen" class="hidden">
+    <div id="card" class="hidden"><h2 id="cardTitle"></h2><p id="cardText"></p><button id="cardBtn">Continue</button></div>
+    <button id="crossBtn" class="hidden" aria-label="Click the plus to start"></button>
+    <div id="crossHint" class="hidden"></div>
+    <div id="endBox" class="hidden"><h2>All done - thank you!</h2><p id="endText">You have finished the game. Please click "Download data" and send the downloaded file to the researcher. Thank you for taking part!</p><button id="endJson">Download data</button><button id="endCsv" class="secondary">Trials CSV</button><button id="endEvents" class="secondary">Events CSV</button></div>
+  </div>
+  <div id="dl"><button id="dlJson" title="Download the data collected in this browser session">Download data</button> <button id="dlCsv">Trials CSV</button> <button id="dlEvents">Events CSV</button></div>
+  <details id="dev" class="panel">
+    <summary>Developer</summary>
+    <div id="devinfo" style="margin:4px 0;max-width:230px;opacity:.8"></div>
+    <label>Impulse magnitude: <b id="forceVal"></b><br /><input id="force" type="range" min="0.5" max="8" step="0.1" /></label>
+    <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="anytime" /> Click while blocks are moving</label>
+    <label>Hold time (ms; 0 = click): <b id="holdVal"></b><br /><input id="hold" type="range" min="0" max="1000" step="50" /></label>
+    <div id="devSession" class="hidden"><button id="devSkipTutorial">Skip tutorial</button><button id="devSkipTrial">Skip trial</button><div id="devPlan" style="opacity:.75;max-width:230px"></div></div>
+    <div style="opacity:.7;max-width:230px;margin-top:4px">Free play: add ?mode=free to the address. Session options: ?trials=6&amp;tutorial=0&amp;seed=7&amp;maxTrial=20&amp;skipAfter=5&amp;novel=0.3&amp;lags=1,2&amp;order=sequence&amp;towers=1,2,3</div>
+  </details>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

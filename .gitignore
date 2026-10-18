@@ -1,0 +1,11 @@
+node_modules
+dist
+.vite
+.DS_Store
+*.log
+# local test output and downloaded participant data must never be committed
+diagnostics/
+image_contact_sheet.png
+blockgame2_*.json
+blockgame2_*.csv
+.env*

@@ -1,0 +1,12 @@
+import puppeteer from 'puppeteer-core';
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const b = await puppeteer.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: 'new', args: ['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader','--no-sandbox'] });
+const p = await b.newPage(); await p.setViewport({ width: 1100, height: 700 });
+const errs = []; p.on('pageerror', e => errs.push(e.message)); p.on('response', r => { if (r.status() >= 400) errs.push(r.status() + ' ' + r.url()); });
+await p.goto('https://marlenercohen.github.io/block-game/?' + Date.now(), { waitUntil: 'domcontentloaded' }); await sleep(6000);
+console.log(await p.evaluate(() => ({ towers: window.__game.TOWERS.length, demoBox: !!document.getElementById('demo'), last: [...document.getElementById('tower').options].slice(-3).map(o => o.text) })));
+await p.evaluate(() => { document.getElementById('tower').value = '13'; document.getElementById('tower').dispatchEvent(new Event('change')); }); await sleep(800);
+const q = await p.evaluate(() => window.__game.screenPoint(7, 0, 0, 0.5));
+await p.evaluate(() => { window.__game.CONFIG.holdMs = 0; }); await p.mouse.move(q.x, q.y); await p.mouse.down(); await sleep(50); await p.mouse.up(); await sleep(1200);
+console.log('inverted Tower 14: actions after click', await p.evaluate(() => window.__game.game.actions), '| camera up', await p.evaluate(() => window.__game.view.camera.up.y));
+console.log('errors:', errs); await b.close();
