@@ -64,7 +64,7 @@ export const IMAGES = {
   faceFraction: 0.72,                    // image side as a fraction of the block-face height (rest of the face keeps the colour cue)
 };
 // Separate pool for the tutorial (files in public/images_tutorial/): practice can never contaminate the familiarity of experimental images.
-export const TUTORIAL_IMAGES = { ids: ['ID_1791', 'ID_1952', 'ID_2115', 'ID_2172', 'ID_240', 'ID_241', 'ID_287', 'ID_301', 'ID_4024', 'ID_5037'], dir: 'images_tutorial' };
+export const TUTORIAL_IMAGES = { ids: ['cc0_apple','cc0_scissors','cc0_tennis_ball','cc0_lime','cc0_anchor','cc0_balloon','cc0_candy_cane','cc0_clothespin','cc0_dreidel','cc0_cracker'], dir: 'images_tutorial' };
 // 1st presentation of an image in the session = novel; 2nd and later = familiar.
 export const familiarityOfPresentation = n => (n === 1 ? 'novel' : 'familiar');
 

@@ -15,6 +15,7 @@ Three.js + Rapier (physics) + Vite. Participants click image-bearing blocks of a
 - Familiar slots reuse an image shown exactly once and last shown exactly L trials ago, L from `lagChoices` (1, 2, 3, 5). If no such image exists at any listed lag, the slot becomes novel (logged `fallback: novel_because_no_once_shown_image_at_a_listed_lag`). Consequence: ~56-57% of presentations are novel rather than 50% (the old fallback that reused any earlier image gave off-list lags up to 23 trials and is removed).
 - `validatePlan(plan)` runs at the end of `buildPlan` and throws if an image is scheduled >2 times or twice in one trial, or if presentation 2 is not familiar. Explicit images in `explicitTrials` that would exceed 2 throw.
 - Tested: 600 plans (300 seeds x lag lists [1,2,3,5] and [1,2,3]) never exceed 2; lags are exactly {1,2,3,5}.
+- Images: since the licence swap the pool is 75 experimental + 10 tutorial images from the THINGSplus CC0 set (IDs `cc0_<concept>`); earlier sessions used original THINGS images (`ID_nnnn`, academic-use-only). To add images: take them from `images_THINGSplus-CC0.zip` (https://osf.io/jum2f), resize to 384 px square, add to `public/images` and `src/image_ids.js`.
 - Pool: 75 experimental images; 24 trials need ~50 distinct. `trials` much above ~35 can exhaust the pool and throws "Image pool exhausted" (add images to `public/images` and `src/image_ids.js`).
 - Note: the planner change is not a new `experimentVersion` string; data from sessions before `f0e6d9b` can contain images presented >2 times and off-list lags. Compare by the `plan` stored in each JSON.
 
@@ -37,5 +38,5 @@ Browser tests (need `puppeteer-core` and Chrome; edit the Chrome path inside; de
 
 ## Open items / caveats
 - Gaze/monkey version is structured for (start control, press pipeline) but not implemented.
-- THINGS image licence should be checked before wide public use.
+- Images are CC0 (THINGSplus). The old original-THINGS images remain in git history before the swap commit.
 - Pages caches HTML ~10 min (hard-refresh after deploys). Tower 1 is the easy "gateway"; tallest towers are ~4.4 high and fit the default camera.
