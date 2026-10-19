@@ -5,10 +5,11 @@ import { EFFECT, bump, preferredXForCue, preferredYForFamiliarity } from './expe
  * u = horizontal position on the clicked face (0 left .. 1 right), v = vertical position (0 bottom .. 1 top).
  * Returns the two contributions separately, the preferred positions and the total multiplier.
  */
-export function effectiveness({ cue, familiarity, u, v }) {
-  const preferredX = preferredXForCue(cue), preferredY = preferredYForFamiliarity(familiarity);
-  const horizontal = EFFECT.horizontalAmplitude * bump(u - preferredX, EFFECT.horizontalWidth);
-  const vertical = EFFECT.verticalAmplitude * bump(v - preferredY, EFFECT.verticalWidth);
+export function effectiveness({ cue, familiarity, u, v, phase = 'initial' }) {
+  const preferredX = preferredXForCue(cue, phase), preferredY = preferredYForFamiliarity(familiarity);
+  const gH = bump(u - preferredX, EFFECT.horizontalWidth), gV = bump(v - preferredY, EFFECT.verticalWidth);   // 0..1 closeness to the optimum
+  if (EFFECT.model === 'product') return { baseline: EFFECT.baseline, horizontal: gH, vertical: gV, multiplier: EFFECT.baseline + (EFFECT.peak - EFFECT.baseline) * gH * gV, preferredX, preferredY };
+  const horizontal = EFFECT.horizontalAmplitude * gH, vertical = EFFECT.verticalAmplitude * gV;
   return { baseline: EFFECT.baseline, horizontal, vertical, multiplier: EFFECT.baseline + horizontal + vertical, preferredX, preferredY };
 }
 

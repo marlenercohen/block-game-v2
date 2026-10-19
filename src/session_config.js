@@ -2,10 +2,11 @@
 import { CUE } from './experiment.js';
 
 export const SESSION = {
-  preset: 'v21',                   // physics/effect/tower-set version (src/presets.js): 'v21' (default) or 'pilot1' (the first human pilot); also ?preset=pilot1
+  preset: 'v22',                   // physics/effect/tower-set version (src/presets.js): 'v22' (default), 'v21' or 'pilot1'; also ?preset=pilot1
   mode: 'session',                 // 'session' = intro -> tutorial -> N experimental trials -> end screen;  'free' = the original single-tower mode (tower menu, Reset, Demo Mode)
   tutorial: true,                  // run the tutorial before the experimental trials
-  nTrials: 24,                     // number of experimental trials
+  nTrials: 100,                    // number of experimental trials (the preset sets it; ?trials= overrides)
+  reversalAfterTrial: 60,          // the colour->horizontal rule is mirrored for experimental trials after this one (null = never; the preset sets it; ?reversal= overrides, ?reversal=0 -> never). Counted in EXPERIMENTAL trials only, tutorial excluded
   // which towers (indices into TOWERS in towers.js) are used and in what order: 'shuffle' = shuffled passes through towerOrder (no immediate repeat), 'sequence' = in order, cycling
   towerOrder: null,                // null = every tower of the active set; otherwise indices into TOWERS (the preset sets it)
   orderMode: 'shuffle',
@@ -36,6 +37,7 @@ export function applyUrlOverrides(cfg, search = typeof location !== 'undefined' 
   if (q.has('mode')) cfg.mode = q.get('mode') === 'free' ? 'free' : 'session';
   if (q.has('tutorial')) cfg.tutorial = q.get('tutorial') !== '0';
   if (num('trials') !== undefined) cfg.nTrials = num('trials');
+  if (q.has('reversal')) cfg.reversalAfterTrial = Number(q.get('reversal')) > 0 ? Number(q.get('reversal')) : null;
   if (num('seed') !== undefined) cfg.seed = num('seed');
   if (num('maxTrial') !== undefined) cfg.maxTrialSeconds = num('maxTrial');
   if (num('skipAfter') !== undefined) cfg.skipButtonAfterSeconds = num('skipAfter');

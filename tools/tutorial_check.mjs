@@ -4,6 +4,8 @@ import { CONFIG } from '../src/config.js';
 import { TUTORIAL_TOWERS } from '../src/tutorial.js';
 import { effectiveness } from '../src/effectiveness.js';
 import { mulberry32 } from '../src/rng.js';
+import { applyPreset } from '../src/presets.js';
+applyPreset(process.env.PRESET ?? 'v22');   // the tutorial is played with the physics/effect of the default preset
 await initPhysics();
 const dir = { x: -0.5714, y: 0, z: -0.8207 }, rng = mulberry32(3);
 function play(tower, fam, strategy) {

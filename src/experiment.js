@@ -32,7 +32,11 @@ export function colorForCue(c) {
   const ch = k => Math.round(lerp((a.color >> k) & 255, (b.color >> k) & 255, t));
   return (ch(16) << 16) | (ch(8) << 8) | ch(0);
 }
-export function preferredXForCue(c) { const [a, b, t] = interp(CUE.preferredXStops, 'cue', c); return lerp(a.x, b.x, t); }
+// Colour rule phase: 'initial' = mapping above; 'reversed' = mirrored (blue -> 0.8, red -> 0.2). Which phase a trial is in: see ruleForTrial (session_config.reversalAfterTrial).
+export const RULE_PHASES = ['initial', 'reversed'];
+export function preferredXForCue(c, phase = 'initial') { const [a, b, t] = interp(CUE.preferredXStops, 'cue', c); const x = lerp(a.x, b.x, t); return phase === 'reversed' ? 1 - x : x; }
+/** Colour-rule phase of experimental trial n (1-based): initial up to and including `reversalAfterTrial`, reversed after it. Tutorial / free play: always initial. */
+export const ruleForTrial = (n, reversalAfterTrial) => (reversalAfterTrial != null && n != null && n > reversalAfterTrial ? 'reversed' : 'initial');
 // Blocks WITHOUT an image can never be hit, so they carry no cue: they are all drawn in this neutral gray.
 export const NO_IMAGE_COLOR = 0x80848c;
 export const cueOf = v => (typeof v === 'number' ? v : v === 'blue' ? 0 : v === 'red' ? 1 : 0.5);
@@ -46,10 +50,14 @@ export const preferredYForFamiliarity = f => (f === 'familiar' ? FAMILIARITY.fam
 //   multiplier = baseline + horizontalAmplitude * G(u - preferredX(cue), horizontalWidth) + verticalAmplitude * G(v - preferredY(familiarity), verticalWidth)
 // with G a smooth bump: exp(-d^2 / (2 width^2)) (width = standard deviation in normalised face units). Additive: either cue helps by itself.
 // Impulse magnitude = CONFIG.impulseMagnitude (config.js, 3.0 as in V1) * multiplier. Direction is unchanged. Worst case ~ baseline (> 0).
+//   model 'additive' (v2.0 / v2.1): multiplier = baseline + horizontalAmplitude*Gh + verticalAmplitude*Gv   (max baseline + both amplitudes)
+//   model 'product'  (v2.2):        multiplier = baseline + (peak - baseline) * Gh * Gv                      (max = peak; BOTH rules must be right for a strong hit)
 export const EFFECT = {
+  model: 'additive',
   baseline: 0.2,
   horizontalAmplitude: 1.0,
   verticalAmplitude: 1.0,
+  peak: 2.2,                 // product model only
   horizontalWidth: 0.2,
   verticalWidth: 0.2,
 };

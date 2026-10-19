@@ -5,7 +5,7 @@
 import { CONFIG } from './config.js';
 import { TOWERS, labelFor } from './towers.js';
 import { PRESETS, applyPreset, EXPERIMENT_VERSION } from './presets.js';
-import { IMAGES, TUTORIAL_IMAGES, PHYS, CUE, EFFECT, FAMILIARITY, COMPLETION, isTargetBlock, colorForCue, NO_IMAGE_COLOR } from './experiment.js';
+import { IMAGES, TUTORIAL_IMAGES, PHYS, CUE, EFFECT, FAMILIARITY, COMPLETION, isTargetBlock, colorForCue, NO_IMAGE_COLOR, ruleForTrial, preferredXForCue } from './experiment.js';
 import { effectiveness, faceCoordinates } from './effectiveness.js';
 import { initPhysics, Simulation } from './physics.js';
 import { SceneView } from './scene.js';
@@ -44,6 +44,7 @@ sess.experimentConfig = {
   blockMass: PHYS.blockMass, cue: CUE, familiarity: FAMILIARITY, effect: EFFECT, completionRule: COMPLETION.rule, impulseMagnitude: CONFIG.impulseMagnitude,
   images: { ids: IMAGES.ids, repeatProbability: IMAGES.repeatProbability, faceFraction: IMAGES.faceFraction, tutorialIds: TUTORIAL_IMAGES.ids },
   block: CONFIG.block, platform: CONFIG.platform, session: { ...SESSION },
+  colorRule: { reversalAfterTrial: SESSION.reversalAfterTrial, preferredXByCue: { initial: { 0: preferredXForCue(0, 'initial'), 0.25: preferredXForCue(0.25, 'initial'), 0.5: preferredXForCue(0.5, 'initial'), 0.75: preferredXForCue(0.75, 'initial'), 1: preferredXForCue(1, 'initial') }, reversed: { 0: preferredXForCue(0, 'reversed'), 0.25: preferredXForCue(0.25, 'reversed'), 0.5: preferredXForCue(0.5, 'reversed'), 0.75: preferredXForCue(0.75, 'reversed'), 1: preferredXForCue(1, 'reversed') } }, preferredYByFamiliarity: { novel: FAMILIARITY.novelPreferredY, familiar: FAMILIARITY.familiarPreferredY } },
   // versioning: which experiment version produced this file, its parameter preset and the complete tower definitions
   experimentVersion: EXPERIMENT_VERSION[presetName] ?? presetName, preset: { name: presetName, ...PRESETS[presetName] },
   physicsActual: { blockMass: PHYS.blockMass, impulseMagnitude: CONFIG.impulseMagnitude, blockFriction: CONFIG.block.friction, platformFriction: CONFIG.platform.friction, restitution: CONFIG.block.restitution, gravity: CONFIG.gravity, effect: { ...EFFECT } },
@@ -53,6 +54,7 @@ sess.experimentConfig = {
 const game = {
   towerIndex: 0, sim: null, actions: 0, paused: false, assignment: null,
   phase: 'idle',               // 'idle' | 'cross' | 'play'
+  colorPhase: 'initial',       // colour-rule phase of the current trial ('initial' | 'reversed'); set in prepareTrial from the trial's own number, not from the clock or the tutorial length
   status: 'ready',             // 'ready' | 'running'  (after an impulse: ready again after 0.5 s or when settled)
   restTime: 0, runTime: 0,
   hold: null,                  // { blockId, localPoint, normal, t0, rec } while the button is held and not yet fired
@@ -86,12 +88,13 @@ function prepareTrial({ tower, blocks, meta, phase }) {
   view.buildBlocks(game.sim, images);
   game.tracker = new BlockTracker(game.sim);
   Object.assign(game, { actions: 0, status: 'ready', restTime: 0, runTime: 0, hold: null, won: false, stuck: false, ending: false, demoNextAt: null });
+  game.colorPhase = meta?.colorRulePhase ?? 'initial';
   logger.beginTrial({
-    ...meta, phase, completionRule: COMPLETION.rule,
+    ...meta, phase, colorRulePhase: game.colorPhase, reversalAfterTrial: phase === 'experiment' ? SESSION.reversalAfterTrial : null, completionRule: COMPLETION.rule,
     physics: { impulseMagnitude: CONFIG.impulseMagnitude, holdMs: CONFIG.holdMs, gravity: CONFIG.gravity, fixedDt: CONFIG.fixedDt, blockMass: PHYS.blockMass, blockFriction: CONFIG.block.friction, platformFriction: CONFIG.platform.friction, effect: { ...EFFECT }, preset: presetName, experimentVersion: EXPERIMENT_VERSION[presetName] ?? presetName },
     // everything needed to reconstruct what the player saw and the properties of every block
     blocks: game.sim.blocks.map((b, k) => {
-      const e = b.props.imageId ? effectiveness({ cue: b.props.cue, familiarity: b.props.familiarity, u: 0.5, v: 0.5 }) : null, p = b.props;
+      const e = b.props.imageId ? effectiveness({ cue: b.props.cue, familiarity: b.props.familiarity, u: 0.5, v: 0.5, phase: game.colorPhase }) : null, p = b.props;
       return {
         blockIndex: k, size: b.size, position: b.spec.pos, mass: b.mass, hasImage: !!p.imageId, actionable: !!p.imageId, imageId: p.imageId,
         presentationNumber: p.presentationNumber, familiarity: p.familiarity, cue: p.cue, color: hex(p.color), preferredX: e ? e.preferredX : null, preferredY: e ? e.preferredY : null,
@@ -134,7 +137,7 @@ function fire(blockId, localPoint, rec = null, holdMs = 0, normal = null) {
   finalizePending();
   const block = game.sim.blocks[blockId], pr = block.props;
   const fc = faceCoordinates(block.size, localPoint, normal);
-  const eff = effectiveness({ cue: pr.cue, familiarity: pr.familiarity, u: fc.u, v: fc.v });
+  const eff = effectiveness({ cue: pr.cue, familiarity: pr.familiarity, u: fc.u, v: fc.v, phase: game.colorPhase });   // the CURRENT trial's colour rule
   const point = view.worldPointOf(blockId, localPoint);
   const dir = view.pushDirection();
   const magnitude = CONFIG.impulseMagnitude * eff.multiplier;
@@ -249,7 +252,7 @@ async function runTutorial() {
 async function runExperiment() {
   const seed = SESSION.seed ?? Math.floor(Math.random() * 2 ** 32);
   const plan = buildPlan({ towers: TOWERS, nTrials: SESSION.nTrials, towerOrder: SESSION.towerOrder, orderMode: SESSION.orderMode, imageIds: IMAGES.ids, novelProportion: SESSION.novelProportion,
-    lagChoices: SESSION.lagChoices, cueValues: SESSION.cueValues, cuePolicy: SESSION.cuePolicy, explicitTrials: SESSION.explicitTrials, seed });
+    lagChoices: SESSION.lagChoices, cueValues: SESSION.cueValues, cuePolicy: SESSION.cuePolicy, explicitTrials: SESSION.explicitTrials, phaseBreakAfter: SESSION.reversalAfterTrial, seed });
   sess.plan = { seed, stats: plan.stats, trials: plan.trials.map(t => ({ trialNumber: t.trialNumber, towerIndex: t.towerIndex, slots: t.slots })) };
   logger.persist(); $('devPlan').textContent = `plan: seed ${seed}, ${plan.stats.novelPresentations} novel / ${plan.stats.familiarPresentations} familiar presentations, ${plan.stats.distinctImages} images`;
   const hist = new ImageHistory();
@@ -257,7 +260,7 @@ async function runExperiment() {
     const tower = TOWERS[pt.towerIndex], { info } = hist.present(pt.slots.map(s => s.imageId));
     const blocks = tower.blocks.map((b, k) => { const s = pt.slots.find(x => x.blockIndex === k); return s ? { imageId: s.imageId, ...info[s.imageId], cue: s.cue, color: colorForCue(s.cue), actionable: true, plannedRole: s.role, lagTarget: s.lagTarget, fallback: s.fallback } : plainBlock; });
     await runTrial({ phase: 'experiment', tower, blocks, label: `Trial ${pt.trialNumber} / ${plan.trials.length}`,
-      meta: { towerId: pt.towerIndex + 1, set: 'towers', towerIndex: pt.towerIndex, configId: tower.configId ?? pt.towerIndex + 1, inverted: !!tower.inverted, variant: null, demoMode: false, presentation: pt.trialNumber } });
+      meta: { towerId: pt.towerIndex + 1, set: 'towers', towerIndex: pt.towerIndex, configId: tower.configId ?? pt.towerIndex + 1, inverted: !!tower.inverted, variant: null, demoMode: false, presentation: pt.trialNumber, colorRulePhase: ruleForTrial(pt.trialNumber, SESSION.reversalAfterTrial) } });
   }
 }
 

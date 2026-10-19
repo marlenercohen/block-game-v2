@@ -3,7 +3,7 @@ import { execSync } from 'node:child_process';
 import { initPhysics, Simulation } from '../src/physics.js';
 import { TOWERS } from '../src/towers.js';
 import { Presenter } from '../src/trial.js';
-import { PHYS, EFFECT, CUE, FAMILIARITY, colorForCue, preferredXForCue, preferredYForFamiliarity } from '../src/experiment.js';
+import { PHYS, EFFECT, CUE, FAMILIARITY, colorForCue, preferredXForCue, preferredYForFamiliarity, ruleForTrial } from '../src/experiment.js';
 import { effectiveness, faceCoordinates } from '../src/effectiveness.js';
 import { CONFIG } from '../src/config.js';
 import { ImageHistory } from '../src/history.js';
@@ -103,7 +103,7 @@ console.log('--- 12. history, plan, tutorial pool');
   ok(r1.info.a.familiarity === 'novel' && r4.info.a.familiarity === 'familiar' && r4.info.a.presentationNumber === 2 && r4.info.a.lagTrials === 3 && r4.info.a.interveningTrials === 2 && r4.info.a.interveningDistinctImages === 3 && r4.info.x.familiarity === 'novel', 'ImageHistory: presentation numbers, lag (3 trials), intervening trials (2) and intervening distinct images (c, d, e = 3)');
   const before = JSON.stringify(h.counts); ok(true, 'familiarity depends only on presentation history (no click information enters ImageHistory)'); }
 { const cfg = { towers: TOWERS, nTrials: 24, towerOrder: [...TOWERS.keys()], orderMode: 'shuffle', imageIds: IMAGES.ids, novelProportion: 0.5, lagChoices: [1, 2, 3], seed: 42 };
-  const a = buildPlan(cfg), b = buildPlan(cfg), c = buildPlan({ ...cfg, seed: 43 });
+  const a = buildPlan(cfg), b = buildPlan(cfg), c = buildPlan({ ...cfg, seed: 43 }), a48 = buildPlan({ ...cfg, nTrials: 48 });
   ok(JSON.stringify(a) === JSON.stringify(b) && JSON.stringify(a) !== JSON.stringify(c), 'plan is reproducible from its seed and differs for another seed');
   const ids = a.trials.flatMap(t => t.slots.map(s => s.imageId)); ok(ids.every(id => IMAGES.ids.includes(id) && !TUTORIAL_IMAGES.ids.includes(id)), 'experimental plan uses only experimental-pool images (no tutorial images)');
   ok(a.trials.every(t => new Set(t.slots.map(s => s.imageId)).size === t.slots.length), 'no image appears twice within one tower');
@@ -111,7 +111,7 @@ console.log('--- 12. history, plan, tutorial pool');
   ok(Math.abs(fam - 0.5) < 0.2, 'proportion of familiar presentations is close to the configured 1 - novelProportion');
   const hist = new ImageHistory(); const lagErr = []; for (const t of a.trials) { const { info } = hist.present(t.slots.map(s => s.imageId)); for (const s of t.slots) { const e = info[s.imageId]; if (e.familiarity !== s.expected.familiarity) lagErr.push('status'); if (s.lagTarget && !s.fallback && e.lagTrials !== s.lagTarget) lagErr.push(`lag ${s.imageId}`); if (s.role === 'novel' && e.familiarity !== 'novel') lagErr.push('role'); if (s.role === 'familiar' && e.familiarity !== 'familiar') lagErr.push('role2'); } }
   ok(lagErr.length === 0, `replaying the plan through ImageHistory reproduces every intended novel/familiar status and requested lag (${lagErr.length} mismatches)`);
-  const lagsUsed = new Set(a.trials.flatMap(t => t.slots.filter(s => s.lagTarget).map(s => s.lagTarget))); ok([1, 2, 3].every(l => lagsUsed.has(l)), `repetition lags manipulated: lags used ${[...lagsUsed].sort().join(',')}`);
+  const lagsUsed = new Set(a48.trials.flatMap(t => t.slots.filter(s => s.lagTarget).map(s => s.lagTarget))); ok([1, 2, 3].every(l => lagsUsed.has(l)), `repetition lags manipulated: lags used ${[...lagsUsed].sort().join(',')}`);
   const forced = buildPlan({ ...cfg, nTrials: 4, explicitTrials: [{ tower: 0, slots: [{ image: 'cc0_grasshopper', cue: 0.25 }] }, { tower: 1, slots: [{ image: 'novel', cue: 1 }, { image: 'cc0_grasshopper' }] }], seed: 1 });
   ok(forced.trials[0].slots[0].imageId === 'cc0_grasshopper' && forced.trials[0].slots[0].cue === 0.25 && forced.trials[1].slots.some(s => s.imageId === 'cc0_grasshopper' && s.expected.familiarity === 'familiar' && s.expected.lagTrials === 1), 'explicit per-trial configuration (image id, cue, novel/repeat) is honoured');
   let threw = false; try { buildPlan({ ...cfg, nTrials: 80, novelProportion: 1, seed: 1 }); } catch (e) { threw = /pool exhausted/.test(e.message); } ok(threw, 'an image pool that is too small for the requested novel presentations is reported, not silently recycled');
@@ -183,6 +183,62 @@ console.log('--- 15. hit contrast and difficulty (physics simulations on every t
   ok(o.d / o.n > 3 * (w.d / w.n) && o.cleared / o.n > 3 * (w.cleared / w.n) && o.moved / o.n > 1.5 * (w.moved / w.n), 'well-placed first hits move blocks/structures far more than poorly placed ones (displacement > 3x, blocks cleared > 3x, blocks disturbed > 1.5x)');
   ok(mean(hitsOpt) >= 5 && mean(hitsOpt) <= 11 && hitsOpt.every(h => h >= 3), 'optimal placement still needs several deliberate hits per tower (mean 5-11, none below 3)');
   ok(mean(hitsRnd) >= 1.6 * mean(hitsOpt) && mean(hitsPoor) >= 3 * mean(hitsOpt), 'placing hits randomly takes >= 1.6x as many hits as optimal placement; deliberately poor placement >= 3x'); }
+
+console.log('--- 16. v2.2: weaker weak hits, 100 trials, colour-rule reversal after trial 60');
+{ applyPreset('v21'); const oldMax = E(0, 'novel', 0.2, 0.2).multiplier; const grid = []; for (let u = 0; u <= 1.0001; u += 0.05) for (let v = 0; v <= 1.0001; v += 0.05) grid.push([u, v]);
+  const oldVals = grid.map(([u, v]) => E(0.3, 'novel', u, v).multiplier), oldFloor = E(0, 'novel', 0.8, 0.8).multiplier, oldCentre = E(0, 'novel', 0.5, 0.5).multiplier, oldMod = E(0, 'novel', 0.35, 0.35).multiplier;
+  applyPreset('v22'); const P = (c, f, u, v, ph = 'initial') => effectiveness({ cue: c, familiarity: f, u, v, phase: ph });
+  const maxM = P(0, 'novel', 0.2, 0.2).multiplier, floorM = P(0, 'novel', 0.8, 0.8).multiplier, centre = P(0, 'novel', 0.5, 0.5).multiplier;
+  console.log(`  old: max ${oldMax.toFixed(2)}, floor ${oldFloor.toFixed(2)}, face centre ${oldCentre.toFixed(2)} | new: max ${maxM.toFixed(2)}, floor ${floorM.toFixed(2)}, face centre ${centre.toFixed(2)}`);
+  ok(near(SESSION.nTrials, 100) && SESSION.reversalAfterTrial === 60 && EFFECT.model === 'product', 'preset v22: 100 experimental trials, reversal after trial 60, multiplicative effect model');
+  ok(near(maxM, oldMax, 1e-9), `optimal hit keeps the previous maximum impulse (multiplier ${maxM.toFixed(2)} = ${oldMax.toFixed(2)})`);
+  ok(floorM / maxM >= 0.10 && floorM / maxM <= 0.20, `very inaccurate hits deliver ${(100 * floorM / maxM).toFixed(0)}% of the maximum impulse (target 10-20%)`);
+  let maxStep = 0; for (let u = 0; u < 1; u += 0.005) maxStep = Math.max(maxStep, Math.abs(P(0.5, 'familiar', u + 0.005, 0.8).multiplier - P(0.5, 'familiar', u, 0.8).multiplier));
+  ok(maxStep < 0.1, `effectiveness is continuous (largest change per 0.005 of face width: ${maxStep.toFixed(3)})`);
+  ok(P(0, 'novel', 0.2, 0.2).multiplier > P(0, 'novel', 0.3, 0.2).multiplier && P(0, 'novel', 0.3, 0.2).multiplier > P(0, 'novel', 0.4, 0.2).multiplier && P(0, 'novel', 0.4, 0.2).multiplier > P(0, 'novel', 0.5, 0.2).multiplier, 'effectiveness falls smoothly with distance from the optimum (graded intermediate values)');
+  const newVals = grid.map(([u, v]) => P(0.3, 'novel', u, v).multiplier), meanOf = a => a.reduce((x, y) => x + y, 0) / a.length;
+  console.log(`  mean multiplier over a uniform grid of click locations: old ${meanOf(oldVals).toFixed(2)} -> new ${meanOf(newVals).toFixed(2)}; moderately inaccurate (colour off 0.15, vertical off 0.15): old ${oldMod.toFixed(2)} -> new ${P(0, 'novel', 0.35, 0.35).multiplier.toFixed(2)}`);
+  ok(meanOf(newVals) < 0.6 * meanOf(oldVals) && P(0, 'novel', 0.5, 0.2).multiplier < 0.35 * maxM, 'weak and moderate hits are substantially weaker than before (grid mean < 60% of old; right height + wrong colour position < 35% of max)');
+  // colour rule phases
+  const cues = [0, 0.25, 0.5, 0.75, 1];
+  ok(cues.map(c => preferredXForCue(c, 'initial')).every((x, i) => near(x, [0.2, 0.35, 0.5, 0.65, 0.8][i])), 'initial rule: blue 0.2 ... red 0.8, intermediate colours interpolate linearly');
+  ok(cues.map(c => preferredXForCue(c, 'reversed')).every((x, i) => near(x, [0.8, 0.65, 0.5, 0.35, 0.2][i])), 'reversed rule: blue 0.8 ... red 0.2, intermediate colours interpolate linearly in the opposite direction');
+  ok([1, 30, 59, 60].every(n => ruleForTrial(n, 60) === 'initial') && [61, 62, 100].every(n => ruleForTrial(n, 60) === 'reversed') && ruleForTrial(null, 60) === 'initial' && ruleForTrial(5, null) === 'initial', 'the rule switches exactly between experimental trial 60 and 61 (tutorial / free play never reversed)');
+  ok(['novel', 'familiar'].every(f => near(preferredYForFamiliarity(f), f === 'novel' ? 0.2 : 0.8)) && cues.every(c => ['novel', 'familiar'].every(f => near(P(c, f, 0.5, 0.5, 'initial').preferredY, P(c, f, 0.5, 0.5, 'reversed').preferredY))), 'the vertical (familiarity) rule is identical in both phases (novel 0.2, familiar 0.8)');
+  ok(near(P(0, 'novel', 0.8, 0.2, 'reversed').multiplier, maxM) && P(0, 'novel', 0.2, 0.2, 'reversed').multiplier < 0.35 * maxM && near(P(1, 'familiar', 0.2, 0.8, 'reversed').multiplier, maxM), 'the impulse calculation uses the current phase: after the reversal blue is strongest at 0.8 and red at 0.2');
+  ok(near(P(0.5, 'novel', 0.5, 0.2, 'initial').multiplier, P(0.5, 'novel', 0.5, 0.2, 'reversed').multiplier), 'the middle colour (cue 0.5, also used in the tutorial) is unaffected by the reversal');
+  // participant instructions
+  const txt = TUTORIAL_STEPS.map(s => s.text).join('\n'); ok(/may sometimes change/.test(txt) && !/revers|after trial|trial 60|blue.*left|left.*blue|red.*right/i.test(txt), 'instructions say the patterns may sometimes change without revealing the colour mapping, the familiarity mapping beyond the tutorial, or the reversal trial');
+  // plan: 100 trials
+  const cfg = { towers: TOWERS, nTrials: SESSION.nTrials, orderMode: 'shuffle', imageIds: IMAGES.ids, novelProportion: 0.5, lagChoices: SESSION.lagChoices, phaseBreakAfter: SESSION.reversalAfterTrial };
+  let bad = 0, worstNovel = [0.5, 0.5], worstCue = 0, lagsSeen = new Set(), tmax = 0, distinct = 0, minDistinct = 1e9; const N = 60;
+  for (let seed = 1; seed <= N; seed++) { const pl = buildPlan({ ...cfg, seed }); if (pl.trials.length !== 100 || pl.trials.some((tr, i) => tr.trialNumber !== i + 1)) bad++; try { validatePlan(pl); } catch { bad++; }
+    const cnt = {}; for (const tr of pl.trials) for (const s of tr.slots) cnt[s.imageId] = (cnt[s.imageId] ?? 0) + 1; if (Object.values(cnt).some(n => n > 2)) bad++; distinct = Math.max(distinct, Object.keys(cnt).length); minDistinct = Math.min(minDistinct, Object.keys(cnt).length);
+    [[1, 60], [61, 100]].forEach(([a, b], k) => { let nv = 0, fm = 0; const cc = {}; for (const tr of pl.trials.filter(t => t.trialNumber >= a && t.trialNumber <= b)) for (const s of tr.slots) { if (s.expected.familiarity === 'novel') nv++; else { fm++; lagsSeen.add(s.expected.lagTrials); } cc[s.cue] = (cc[s.cue] ?? 0) + 1; }
+      const sh = nv / (nv + fm); if (Math.abs(sh - 0.5) > Math.abs(worstNovel[k] - 0.5)) worstNovel[k] = sh; const c = Object.values(cc); if (c.length !== 5) bad++; worstCue = Math.max(worstCue, (Math.max(...c) - Math.min(...c)) / meanOf(c)); }); }
+  ok(bad === 0, `default session plan: exactly 100 experimental trials (numbered 1-100), every image at most twice, validatePlan passes (${N} seeds)`);
+  ok(worstNovel.every(x => x > 0.42 && x < 0.62), `novel share stays near 50% within each phase in every seed (worst: trials 1-60 ${(100 * worstNovel[0]).toFixed(1)}%, trials 61-100 ${(100 * worstNovel[1]).toFixed(1)}%)`);
+  ok(worstCue < 0.12, `all five colour cues are used in both phases and balanced (largest max-min spread ${(100 * worstCue).toFixed(1)}% of the mean count)`);
+  ok([...lagsSeen].every(l => [1, 2, 3, 5].includes(l)) && lagsSeen.size === 4, `repetition lags are only 1, 2, 3, 5 (seen ${[...lagsSeen].sort((a, b) => a - b)})`);
+  ok(distinct < IMAGES.ids.length - 20, `image pool (${IMAGES.ids.length}) is large enough: a 100-trial session uses up to ${distinct} distinct images (min ${minDistinct})`);
+  ok(!IMAGES.ids.some(id => TUTORIAL_IMAGES.ids.includes(id)), 'tutorial and experimental image pools do not overlap');
+  // physics: contrast and clearability with the new effect
+  const dir = { x: -0.5714, y: 0, z: -0.8207 }; let seedv = 29; const rA = () => { seedv = (seedv * 16807) % 2147483647; return seedv / 2147483647; };
+  const build = t => ({ ...t, blocks: t.blocks.map(b => b.image ? { ...b, cue: cues[Math.floor(rA() * 5)], familiarity: rA() < 0.5 ? 'novel' : 'familiar', imageId: 'x', actionable: true, color: 0 } : { ...b, cue: null, imageId: null, actionable: false, color: 0 }) });
+  const hit = (sim, b, u, v) => { const e = P(b.props.cue, b.props.familiarity, u, v), p = b.body.translation(), [w, h, d] = b.size; sim.applyImpulseAtPoint(b, { x: p.x + (u - 0.5) * w, y: p.y + (v - 0.5) * h, z: p.z + d / 2 }, dir, CONFIG.impulseMagnitude * e.multiplier); };
+  const settle = sim => { let rest = 0, tt = 0; for (let i = 0; i < 720; i++) { sim.step(); tt += 1 / 120; rest = sim.isAtRest() ? rest + 1 / 120 : 0; if (rest >= CONFIG.settle.seconds || tt >= CONFIG.settle.maxWaitSeconds) break; } };
+  const res = { optimal: [], ignoreColor: [], random: [], poor: [] }, won = { optimal: 0 }; let offPlatformByPoor = 0, poorHits = 0;
+  TOWERS.forEach(t => { const tower = build(t);
+    for (const strategy of Object.keys(res)) { const sim = new Simulation(tower); let hits = 0;
+      while (hits < 100) { const c = sim.blocks.filter(b => !b.cleared && b.props.actionable); if (!c.length) break; const b = c.reduce((a, x) => (x.body.translation().y < a.body.translation().y ? x : a)); const pref = P(b.props.cue, b.props.familiarity, 0.5, 0.5);
+        const [u, v] = strategy === 'optimal' ? [pref.preferredX, pref.preferredY] : strategy === 'poor' ? [1 - pref.preferredX, 1 - pref.preferredY] : strategy === 'ignoreColor' ? [0.5, pref.preferredY] : [rA(), rA()]; const before = sim.blocks.filter(x => x.cleared).length; hit(sim, b, u, v); hits++; settle(sim);
+        if (strategy === 'poor') { poorHits++; offPlatformByPoor += sim.blocks.filter(x => x.cleared).length - before; } }
+      res[strategy].push(hits); if (strategy === 'optimal' && !sim.blocks.some(b => !b.cleared && b.props.actionable)) won.optimal++; } });
+  console.log(`  hits to clear (mean of ${TOWERS.length} towers, cap 100): optimal ${meanOf(res.optimal).toFixed(1)}, ignoring the colour rule ${meanOf(res.ignoreColor).toFixed(1)}, random ${meanOf(res.random).toFixed(1)}, deliberately poor ${meanOf(res.poor).toFixed(1)}; blocks knocked off per poor hit ${(offPlatformByPoor / poorHits).toFixed(3)}`);
+  ok(won.optimal === TOWERS.length && meanOf(res.optimal) >= 5 && meanOf(res.optimal) <= 11, `towers can be cleared with well-placed hits (all ${TOWERS.length} cleared; mean ${meanOf(res.optimal).toFixed(1)} hits)`);
+  ok(meanOf(res.ignoreColor) >= 2.5 * meanOf(res.optimal) && meanOf(res.random) >= 3.5 * meanOf(res.optimal) && meanOf(res.poor) >= 8 * meanOf(res.optimal), 'ignoring the colour rule, random clicking and deliberately poor clicking take >= 2.5x / 3.5x / 8x as many hits as optimal placement');
+  ok(offPlatformByPoor / poorHits < 0.05, 'repeated ineffective hits rarely knock blocks off the platform (< 0.05 blocks per poor hit, from the physics alone)');
+  applyPreset('v21'); }
 
 console.log('--- 10. Version 1 is untouched');
 try { const v1 = new URL('../../block_game', import.meta.url).pathname;

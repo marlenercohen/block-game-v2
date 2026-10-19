@@ -10,13 +10,15 @@ Three.js + Rapier (physics) + Vite. Participants click image-bearing blocks of a
 2. v2.1 (commit `564a5b7`): 12 new 3-D towers (`src/towers_v21.js`, 6-8 blocks, 3-4 image blocks), mass 0.432->1.0, impulse 1.2->3.2, friction 0.4->0.5, effect `baseline 0.2, amps 1.0/1.0, widths 0.2/0.2` (was 0.25/0.975/0.22), timeouts 90 s / skip after 30 s, image pool 35->75. Optimal placement ~8 hits per tower, random ~17, deliberately poor ~53; first-hit displacement optimal vs poor ~3.6x.
 3. Planner cap (commit `f0e6d9b`): strict maximum of two presentations per image per session (see below).
 
+4. v2.2 (see README "Version 2.2"): multiplicative hit effectiveness (weak hits much weaker, peak unchanged), 100 trials, colour rule reversed after trial 60, extra instruction sentence, 240-image pool, rule-reconstruction logging. Default preset `v22`; `?preset=v21` / `pilot1` reproduce earlier versions. Sessions from earlier versions have 24 trials and no reversal.
+
 ## Image presentation rule (src/plan.js)
 - Each image appears once as novel and at most once more as familiar; after two presentations it is never scheduled again. Tutorial images are a separate pool/history.
 - Familiar slots reuse an image shown exactly once and last shown exactly L trials ago, L from `lagChoices` (1, 2, 3, 5). If no such image exists at any listed lag, the slot becomes novel (logged `fallback: novel_because_no_once_shown_image_at_a_listed_lag`). Consequence: ~56-57% of presentations are novel rather than 50% (the old fallback that reused any earlier image gave off-list lags up to 23 trials and is removed).
 - `validatePlan(plan)` runs at the end of `buildPlan` and throws if an image is scheduled >2 times or twice in one trial, or if presentation 2 is not familiar. Explicit images in `explicitTrials` that would exceed 2 throw.
 - Tested: 600 plans (300 seeds x lag lists [1,2,3,5] and [1,2,3]) never exceed 2; lags are exactly {1,2,3,5}.
 - Images: since the licence swap the pool is 75 experimental + 10 tutorial images from the THINGSplus CC0 set (IDs `cc0_<concept>`); earlier sessions used original THINGS images (`ID_nnnn`, academic-use-only). To add images: take them from `images_THINGSplus-CC0.zip` (https://osf.io/jum2f), resize to 384 px square, add to `public/images` and `src/image_ids.js`.
-- Pool: 75 experimental images; 24 trials need ~50 distinct. `trials` much above ~35 can exhaust the pool and throws "Image pool exhausted" (add images to `public/images` and `src/image_ids.js`).
+- Pool: 240 experimental images; 100 trials need ~175-190 distinct (at most two presentations each). `trials` much above ~120 can exhaust the pool and throws "Image pool exhausted" (add images to `public/images` and `src/image_ids.js`).
 - Note: the planner change is not a new `experimentVersion` string; data from sessions before `f0e6d9b` can contain images presented >2 times and off-list lags. Compare by the `plan` stored in each JSON.
 
 ## Key files

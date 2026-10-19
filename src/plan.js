@@ -5,7 +5,7 @@ import { mulberry32, shuffled, pick } from './rng.js';
 
 /**
  * config: { nTrials, towers (array of tower specs), towerOrder (indices into towers), orderMode ('shuffle' | 'sequence'), imageIds (pool), novelProportion (0..1),
- *           lagChoices (array of trial lags for repeated images), cueValues, cuePolicy ('balanced' | 'random'), explicitTrials (optional) , seed }
+ *           lagChoices (array of trial lags for repeated images), cueValues, cuePolicy ('balanced' | 'random'), explicitTrials (optional), phaseBreakAfter (optional trial number after which cue/novelty balancing restarts), seed }
  * explicitTrials[t] = { tower: index, slots: [ { image: 'novel' | 'familiar' | { lag: n } | '<imageId>', cue: number } ... ] }  (slots follow the image blocks of the tower in order;
  * any omitted trial/slot is generated automatically).
  * Returns { trials: [ { trialNumber, towerIndex, slots: [ { blockIndex, imageId, cue, role, lagTarget, fallback } ] } ], stats }.
@@ -42,8 +42,9 @@ export function buildPlan(config) {
   }
   const hist = new ImageHistory(); const novelQueue = shuffled(imageIds, rng); let cueBag = [];
   const nextCue = () => { if (cuePolicy === 'random') return pick(cueValues, rng); if (!cueBag.length) cueBag = shuffled(cueValues, rng); return cueBag.pop(); };
-  const trials = []; let nNovel = 0, nFamiliar = 0, fallbacks = 0;
+  const trials = []; let nNovel = 0, nFamiliar = 0, fallbacks = 0; let pN = 0, pF = 0;   // pN/pF: novel/familiar presentations so far within the current rule phase (the controller below keeps each phase near novelProportion)
   for (let t = 1; t <= nTrials; t++) {
+    if (config.phaseBreakAfter && t === config.phaseBreakAfter + 1) { cueBag = []; pN = 0; pF = 0; }   // balance cues and novel/familiar separately before and after the colour-rule reversal
     const ti = config.explicitTrials?.[t - 1]?.tower ?? seq[t - 1], tower = towers[ti];
     const slotsBlocks = tower.blocks.map((b, k) => [b, k]).filter(([b]) => b.image);
     const used = new Set(), slots = [];
@@ -54,7 +55,7 @@ export function buildPlan(config) {
       if (typeof want === 'string' && want !== 'novel' && want !== 'familiar') { imageId = want; role = 'explicit'; if ((hist.counts[imageId] ?? 0) >= MAX_PRESENTATIONS) throw new Error(`Explicit image ${imageId} on trial ${t} would be its presentation number ${hist.counts[imageId] + 1}; the limit is ${MAX_PRESENTATIONS} per session.`); }
       else {
         if (want && typeof want === 'object') { lagTarget = want.lag; want = 'familiar'; }
-        if (!want) want = (t > 1 && rng() >= novelProportion) ? 'familiar' : 'novel';
+        if (!want) { const share = pN + pF ? pN / (pN + pF) : novelProportion, pNovel = novelProportion <= 0 || novelProportion >= 1 ? novelProportion : Math.min(0.9, Math.max(0.1, novelProportion - 1.5 * (share - novelProportion))); want = (t > 1 && rng() >= pNovel) ? 'familiar' : 'novel'; }   // feedback keeps the running novel share near novelProportion
         if (want === 'familiar') {
           const lags = lagTarget ? [lagTarget] : shuffled(lagChoices, rng);
           for (const L of lags) { const prevImgs = t - L >= 1 ? (hist.trials[t - L - 1] ?? []).filter(x => !used.has(x) && hist.last[x] === t - L && hist.counts[x] === 1) : []; if (prevImgs.length)   /* candidates: images last shown exactly L trials ago */ { imageId = pick(prevImgs, rng); lagTarget = L; role = 'familiar'; break; } }
@@ -70,7 +71,7 @@ export function buildPlan(config) {
       slots.push({ blockIndex: k, imageId, cue, role, lagTarget, fallback });
     });
     const { info } = hist.present(slots.map(s => s.imageId));
-    slots.forEach(s => { s.expected = info[s.imageId]; if (s.expected.familiarity === 'novel') nNovel++; else nFamiliar++; });
+    slots.forEach(s => { s.expected = info[s.imageId]; if (s.expected.familiarity === 'novel') { nNovel++; pN++; } else { nFamiliar++; pF++; } });
     trials.push({ trialNumber: t, towerIndex: ti, slots });
   }
   const plan = { trials, stats: { nTrials, novelPresentations: nNovel, familiarPresentations: nFamiliar, fallbacks, distinctImages: Object.keys(hist.counts).length, seed: config.seed ?? 1 } };

@@ -117,6 +117,7 @@ export class Logger {
     const pt = a.pointerType in this.data.session.inputObserved ? a.pointerType : 'other';
     this.data.session.inputObserved[pt]++;
     const xyz = q => (q ? { x: r3(q.x), y: r3(q.y), z: r3(q.z) } : null);
+    const blk = a.hasImage && a.blockIndex !== null && a.blockIndex !== undefined ? t.blocks?.[a.blockIndex] : null;
     const rec = {
       sessionId: this.sessionId, trialId: t.trialId, phase: t.phase, trialNumber: t.trialNumber, tutorialTrialNumber: t.tutorialTrialNumber, trialIndexOverall: t.trialIndexOverall,
       actionNumber: t.actions.length + 1, afterTrialEnd: late, tMs: r3(this.t0 === null ? null : performance.now() - this.t0), tSessionMs: this.sessionMs(),
@@ -130,6 +131,10 @@ export class Logger {
       face: a.face ?? null, u: r3(a.u), v: r3(a.v),     // clicked face and normalised coordinates on it (object-centred): u 0 left..1 right, v 0 bottom..1 top
       actionable: a.hasImage ?? null, impulseApplied: false, effectiveness: null, impulse: null, holdMs: null, response: null,
       first: a.first ?? null, blockState: a.blockState ?? null, trialContext: a.trialContext ?? null,
+      // explicit rule-reconstruction fields (v2.2): rule phase of this trial, the optimum for THIS block under THIS trial's rule, the actual click, and the image's history
+      experimentalTrialNumber: t.phase === 'experiment' ? t.trialNumber : null, colorRulePhase: t.colorRulePhase ?? 'initial',
+      optimalU: blk?.preferredX ?? null, optimalV: blk?.preferredY ?? null, clickU: r3(a.u), clickV: r3(a.v),
+      previousPresentationTrial: blk?.previousTrial ?? null, lagTrials: blk?.lagTrials ?? null,
     };
     if (!late) { if (rec.result === 'miss') t.misses++; else if (rec.result === 'non_actionable') t.nonActionable++; else if (rec.result?.startsWith('ignored')) t.ignored++; }
     t.actions.push(rec); this.persist(); return rec;
@@ -167,7 +172,7 @@ export class Logger {
 
   /** Trial summary: one row per trial. */
   csv() {
-    const cols = ['sessionId', 'trialId', 'phase', 'trialNumber', 'tutorialTrialNumber', 'trialIndexOverall', 'towerId', 'configId', 'inverted', 'demoMode', 'startedAt', 'endedAt', 'crossOnsetSessionMs', 'crossClickSessionMs', 'crossLatencyMs', 'towerOnsetSessionMs', 'durationMs', 'timeToCompletionMs', 'outcome', 'completed', 'attempts', 'hits', 'nonActionable', 'misses', 'ignored', 'releasedEarly', 'imagesShown', 'novelImages', 'familiarImages', 'meanMultiplier'];
+    const cols = ['sessionId', 'trialId', 'phase', 'trialNumber', 'colorRulePhase', 'tutorialTrialNumber', 'trialIndexOverall', 'towerId', 'configId', 'inverted', 'demoMode', 'startedAt', 'endedAt', 'crossOnsetSessionMs', 'crossClickSessionMs', 'crossLatencyMs', 'towerOnsetSessionMs', 'durationMs', 'timeToCompletionMs', 'outcome', 'completed', 'attempts', 'hits', 'nonActionable', 'misses', 'ignored', 'releasedEarly', 'imagesShown', 'novelImages', 'familiarImages', 'meanMultiplier'];
     const physics = ['impulseMagnitude', 'holdMs'];
     const mean = m => (m.length ? +(m.reduce((a, b) => a + b, 0) / m.length).toFixed(3) : '');
     const val = (t, c) => c === 'meanMultiplier' ? mean(t.actions.filter(a => a.effectiveness).map(a => a.effectiveness.multiplier))
@@ -179,7 +184,7 @@ export class Logger {
   /** Event table: one row per action (attempted hit / click), with the trial identifiers and the flattened analysis fields. */
   eventsCsv() {
     const cols = ['sessionId', 'trialId', 'phase', 'trialNumber', 'tutorialTrialNumber', 'trialIndexOverall', 'towerId', 'configId', 'actionNumber', 'afterTrialEnd', 'eventType', 'tMs', 'tSessionMs', 'pointerType',
-      'screenX', 'screenY', 'worldX', 'worldY', 'worldZ', 'blockIndex', 'hasImage', 'imageId', 'presentationNumber', 'familiarity', 'cue', 'color', 'face', 'u', 'v', 'actionable', 'impulseApplied',
+      'screenX', 'screenY', 'worldX', 'worldY', 'worldZ', 'blockIndex', 'hasImage', 'imageId', 'presentationNumber', 'familiarity', 'cue', 'color', 'face', 'u', 'v', 'experimentalTrialNumber', 'colorRulePhase', 'optimalU', 'optimalV', 'clickU', 'clickV', 'previousPresentationTrial', 'lagTrials', 'actionable', 'impulseApplied',
       'effBaseline', 'effHorizontal', 'effVertical', 'effMultiplier', 'preferredX', 'preferredY', 'impulseMagnitude', 'impulseDirX', 'impulseDirY', 'impulseDirZ', 'holdMs',
       'firstAttemptOnBlock', 'firstActionableAttemptOnBlock', 'firstImpulseOnBlock', 'priorImpulsesOnTrial', 'priorImpulseOnOtherBlock',
       'blockPreviouslyMoved', 'blockDisplacementM', 'blockRotationDeg', 'blockMaxSpeed', 'blockX', 'blockY', 'blockZ', 'blockQx', 'blockQy', 'blockQz', 'blockQw', 'blockTiltDeg',
