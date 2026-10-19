@@ -81,3 +81,16 @@ export const familiarityOfPresentation = n => (n === 1 ? 'novel' : 'familiar');
 //                 moved by collisions). 'all_blocks': every block must leave; a trial where only image-less blocks remain ends as 'stuck'.
 export const COMPLETION = { rule: 'image_blocks' };
 export const isTargetBlock = b => COMPLETION.rule === 'all_blocks' || !!b.props.actionable;
+
+// ---- horizontal-error penalty (v2.3) ------------------------------------------------------------------
+// In experimental trials a click on an image block whose HORIZONTAL error (|u - preferredX|, normalised face units, under the CURRENT colour rule) is larger than
+// `horizontalThreshold` applies no impulse and adds one penalty block instead. Errors up to and including the threshold use the normal hit-strength calculation.
+// Penalty blocks are display-only objects (no physics body): they cannot touch the tower, never fall off, and each is removed by one click anywhere on it.
+export const PENALTY = {
+  enabled: false,                 // set by the preset (v23 = on)
+  horizontalThreshold: 0.25,
+  applyInTutorial: false,         // tutorial and free play never penalise
+  blockSize: 0.29,                // edge of a penalty cube (world units); rows at z 1.0 and 0.70 fit between the tower (front z <= 0.55) and the platform edge (z 1.15)
+  color: 0x3b3f47,                // neutral dark gray, distinct from tower blocks (0x80848c) and the platform
+  flashMs: 700,                   // brief highlight when a penalty block is added
+};

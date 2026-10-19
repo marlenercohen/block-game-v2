@@ -5,6 +5,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { effectiveness } from '../../src/effectiveness.js';
+import { applyPreset } from '../../src/presets.js';
+applyPreset(process.env.PRESET ?? 'v23');   // same effect model as the page under test (the default preset)
 import { PHYS } from '../../src/experiment.js';
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const sleep = ms => new Promise(r => setTimeout(r, ms));

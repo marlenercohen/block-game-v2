@@ -82,6 +82,9 @@ export class Logger {
       endedAt: null, endSessionMs: null, durationMs: null, timeToCompletionMs: null, completed: false, outcome: null,
       viewport: { width: innerWidth, height: innerHeight, orientation: screen.orientation?.type ?? (innerWidth >= innerHeight ? 'landscape' : 'portrait') },
       attempts: 0, hits: 0, nonActionable: 0, misses: 0, ignored: 0, releasedEarly: 0, actions: [],
+      // horizontal-error penalty (v2.3). Penalty-block clicks are NOT in `actions` (they are not hits and must not enter the familiarity / colour-location analyses): they are in `penaltyEvents`.
+      penaltiesTriggered: 0, penaltyBlocksAdded: 0, penaltyBlocksRemoved: 0, penaltyBlockClicks: 0, penaltyOutstandingAtEnd: null, towerClearedAtMs: null, timeToClearPenaltiesMs: null,
+      penalty: { active: !!meta.penaltyActive, threshold: meta.penaltyThreshold ?? null, blocks: [] }, penaltyEvents: [],
     };
     this.t0 = null; this.lastEnded = null; this.data.trials.push(t); this.active = t; this.persist();
   }
@@ -135,6 +138,8 @@ export class Logger {
       experimentalTrialNumber: t.phase === 'experiment' ? t.trialNumber : null, colorRulePhase: t.colorRulePhase ?? 'initial',
       optimalU: blk?.preferredX ?? null, optimalV: blk?.preferredY ?? null, clickU: r3(a.u), clickV: r3(a.v),
       previousPresentationTrial: blk?.previousTrial ?? null, lagTrials: blk?.lagTrials ?? null,
+      targetType: a.targetType ?? (a.blockIndex === null || a.blockIndex === undefined ? 'platform_or_background' : a.hasImage ? 'image_block' : 'plain_block'),   // 'penalty_block' clicks are in penaltyEvents
+      horizontalError: null, penaltyTriggered: false, penaltyBlockId: null,
     };
     if (!late) { if (rec.result === 'miss') t.misses++; else if (rec.result === 'non_actionable') t.nonActionable++; else if (rec.result?.startsWith('ignored')) t.ignored++; }
     t.actions.push(rec); this.persist(); return rec;
@@ -150,6 +155,30 @@ export class Logger {
     this.active.hits++; this.persist();
   }
 
+  /** A press on an image block whose horizontal error exceeded the threshold: no impulse, one penalty block added. Returns the new penalty block id. */
+  markPenalty(rec, { horizontalError, threshold }) {
+    const t = this.active; if (!rec || !t) return null;
+    const id = t.penaltyBlocksAdded + 1, tMs = r3(performance.now() - this.t0);
+    rec.result = 'penalty'; rec.eventType = 'penalty'; rec.impulseApplied = false; rec.holdMs = 0; rec.horizontalError = r3(horizontalError); rec.penaltyThreshold = threshold; rec.penaltyTriggered = true; rec.penaltyBlockId = id;
+    t.penaltiesTriggered++; t.penaltyBlocksAdded++;
+    t.penalty.blocks.push({ penaltyBlockId: id, addedAtMs: tMs, triggerActionNumber: rec.actionNumber, triggerBlockIndex: rec.blockIndex, triggerImageId: rec.imageId, horizontalError: rec.horizontalError, removedAtMs: null, removalClicks: 0, msOnPlatform: null });
+    t.penaltyEvents.push({ eventType: 'penalty_block_added', targetType: 'penalty_block', penaltyBlockId: id, tMs, tSessionMs: this.sessionMs(), triggerActionNumber: rec.actionNumber, outstandingAfter: t.penaltyBlocksAdded - t.penaltyBlocksRemoved });
+    this.persist(); return id;
+  }
+  /** Record the horizontal error on a press that was NOT penalised (the impulse is applied). */
+  noteHorizontalError(rec, err, threshold) { if (rec) { rec.horizontalError = r3(err); rec.penaltyThreshold = threshold; } }
+  /** A click on a penalty block (always removes it). */
+  markPenaltyRemoved(id, { pointerType, x, y }) {
+    const t = this.active; if (!t) return;
+    const b = t.penalty.blocks.find(q => q.penaltyBlockId === id), tMs = r3(performance.now() - this.t0); t.penaltyBlockClicks++;
+    if (b) { b.removedAtMs = tMs; b.removalClicks = 1; b.msOnPlatform = r3(tMs - b.addedAtMs); t.penaltyBlocksRemoved++; }
+    t.penaltyEvents.push({ eventType: 'penalty_block_removed', targetType: 'penalty_block', penaltyBlockId: id, tMs, tSessionMs: this.sessionMs(), pointerType, screen: { x: r3(x), y: r3(y) }, clickNumber: t.penaltyBlockClicks, outstandingAfter: t.penaltyBlocksAdded - t.penaltyBlocksRemoved });
+    if (t.penaltyBlocksRemoved === t.penaltyBlocksAdded) { const from = Math.max(t.towerClearedAtMs ?? 0, ...t.penalty.blocks.map(q => q.addedAtMs)); t.timeToClearPenaltiesMs = r3(tMs - from); }
+    this.persist();
+  }
+  /** The main tower objective was just completed (all image blocks gone). */
+  markTowerCleared() { const t = this.active; if (t && t.towerClearedAtMs === null) { t.towerClearedAtMs = r3(performance.now() - this.t0); this.persist(); } }
+
   markReleasedEarly(rec, holdMs) {
     if (!rec || rec.result === 'fired' || !this.active) return;
     rec.result = 'released_early'; rec.holdMs = r3(holdMs); this.active.releasedEarly++; this.persist();
@@ -159,6 +188,7 @@ export class Logger {
   endTrial(outcome) {
     const t = this.active; if (!t) return;
     for (const a of t.actions) if (a.result === 'pending') a.result = 'interrupted';   // press still undecided when the trial ended
+    t.penaltyOutstandingAtEnd = t.penaltyBlocksAdded - t.penaltyBlocksRemoved;
     t.endedAt = iso(); t.endSessionMs = this.sessionMs(); t.durationMs = this.t0 === null ? null : r3(performance.now() - this.t0);
     t.outcome = outcome; t.completed = outcome === 'completed'; if (t.completed) t.timeToCompletionMs = t.durationMs;
     this.lastEnded = t; this.active = null; this.persist();
@@ -172,7 +202,7 @@ export class Logger {
 
   /** Trial summary: one row per trial. */
   csv() {
-    const cols = ['sessionId', 'trialId', 'phase', 'trialNumber', 'colorRulePhase', 'tutorialTrialNumber', 'trialIndexOverall', 'towerId', 'configId', 'inverted', 'demoMode', 'startedAt', 'endedAt', 'crossOnsetSessionMs', 'crossClickSessionMs', 'crossLatencyMs', 'towerOnsetSessionMs', 'durationMs', 'timeToCompletionMs', 'outcome', 'completed', 'attempts', 'hits', 'nonActionable', 'misses', 'ignored', 'releasedEarly', 'imagesShown', 'novelImages', 'familiarImages', 'meanMultiplier'];
+    const cols = ['sessionId', 'trialId', 'phase', 'trialNumber', 'colorRulePhase', 'tutorialTrialNumber', 'trialIndexOverall', 'towerId', 'configId', 'inverted', 'demoMode', 'startedAt', 'endedAt', 'crossOnsetSessionMs', 'crossClickSessionMs', 'crossLatencyMs', 'towerOnsetSessionMs', 'durationMs', 'timeToCompletionMs', 'outcome', 'completed', 'attempts', 'hits', 'nonActionable', 'misses', 'ignored', 'releasedEarly', 'imagesShown', 'novelImages', 'familiarImages', 'meanMultiplier', 'penaltiesTriggered', 'penaltyBlocksAdded', 'penaltyBlocksRemoved', 'penaltyBlockClicks', 'penaltyOutstandingAtEnd', 'towerClearedAtMs', 'timeToClearPenaltiesMs'];
     const physics = ['impulseMagnitude', 'holdMs'];
     const mean = m => (m.length ? +(m.reduce((a, b) => a + b, 0) / m.length).toFixed(3) : '');
     const val = (t, c) => c === 'meanMultiplier' ? mean(t.actions.filter(a => a.effectiveness).map(a => a.effectiveness.multiplier))
@@ -184,7 +214,7 @@ export class Logger {
   /** Event table: one row per action (attempted hit / click), with the trial identifiers and the flattened analysis fields. */
   eventsCsv() {
     const cols = ['sessionId', 'trialId', 'phase', 'trialNumber', 'tutorialTrialNumber', 'trialIndexOverall', 'towerId', 'configId', 'actionNumber', 'afterTrialEnd', 'eventType', 'tMs', 'tSessionMs', 'pointerType',
-      'screenX', 'screenY', 'worldX', 'worldY', 'worldZ', 'blockIndex', 'hasImage', 'imageId', 'presentationNumber', 'familiarity', 'cue', 'color', 'face', 'u', 'v', 'experimentalTrialNumber', 'colorRulePhase', 'optimalU', 'optimalV', 'clickU', 'clickV', 'previousPresentationTrial', 'lagTrials', 'actionable', 'impulseApplied',
+      'screenX', 'screenY', 'worldX', 'worldY', 'worldZ', 'blockIndex', 'hasImage', 'imageId', 'presentationNumber', 'familiarity', 'cue', 'color', 'face', 'u', 'v', 'experimentalTrialNumber', 'colorRulePhase', 'optimalU', 'optimalV', 'clickU', 'clickV', 'previousPresentationTrial', 'lagTrials', 'targetType', 'horizontalError', 'penaltyThreshold', 'penaltyTriggered', 'penaltyBlockId', 'actionable', 'impulseApplied',
       'effBaseline', 'effHorizontal', 'effVertical', 'effMultiplier', 'preferredX', 'preferredY', 'impulseMagnitude', 'impulseDirX', 'impulseDirY', 'impulseDirZ', 'holdMs',
       'firstAttemptOnBlock', 'firstActionableAttemptOnBlock', 'firstImpulseOnBlock', 'priorImpulsesOnTrial', 'priorImpulseOnOtherBlock',
       'blockPreviouslyMoved', 'blockDisplacementM', 'blockRotationDeg', 'blockMaxSpeed', 'blockX', 'blockY', 'blockZ', 'blockQx', 'blockQy', 'blockQz', 'blockQw', 'blockTiltDeg',

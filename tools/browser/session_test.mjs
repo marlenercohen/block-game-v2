@@ -13,7 +13,7 @@ const b = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args
 const p = await b.newPage(); await p.setViewport({ width: 1100, height: 700 });
 const errs = []; p.on('pageerror', e => errs.push(e.message)); p.on('console', m => { if (m.type() === 'error') errs.push(m.text()); });
 const cdp = await p.createCDPSession(); await cdp.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: DL });
-await p.goto(`${BASE}?trials=5&seed=21&maxTrial=10&skipAfter=2&pause=400&order=sequence&towers=1,2,3,4,5`, { waitUntil: 'domcontentloaded' }); await sleep(3500);
+await p.goto(`${BASE}?trials=5&seed=21&maxTrial=10&skipAfter=2&pause=400&order=sequence&towers=1,2,3,4,5&preset=v22`, { waitUntil: 'domcontentloaded' }); await sleep(3500);
 const ev = f => p.evaluate(f); const log = (...a) => console.log(...a);
 const vis = sel => ev(`(()=>{const e=document.querySelector('${sel}'); return !!e && !e.classList.contains('hidden') && getComputedStyle(e).display!=='none'})()`);
 const sceneVisible = () => ev(() => window.__game.view.group.visible && window.__game.view.platform.visible);

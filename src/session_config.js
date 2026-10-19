@@ -1,8 +1,8 @@
 // ===== Session (pilot experiment) configuration. Edit here, or override per run with URL parameters (see applyUrlOverrides). =====
-import { CUE } from './experiment.js';
+import { CUE, PENALTY } from './experiment.js';
 
 export const SESSION = {
-  preset: 'v22',                   // physics/effect/tower-set version (src/presets.js): 'v22' (default), 'v21' or 'pilot1'; also ?preset=pilot1
+  preset: 'v23',                   // physics/effect/tower-set version (src/presets.js): 'v23' (default), 'v22', 'v21' or 'pilot1'; also ?preset=pilot1
   mode: 'session',                 // 'session' = intro -> tutorial -> N experimental trials -> end screen;  'free' = the original single-tower mode (tower menu, Reset, Demo Mode)
   tutorial: true,                  // run the tutorial before the experimental trials
   nTrials: 100,                    // number of experimental trials (the preset sets it; ?trials= overrides)
@@ -38,6 +38,8 @@ export function applyUrlOverrides(cfg, search = typeof location !== 'undefined' 
   if (q.has('tutorial')) cfg.tutorial = q.get('tutorial') !== '0';
   if (num('trials') !== undefined) cfg.nTrials = num('trials');
   if (q.has('reversal')) cfg.reversalAfterTrial = Number(q.get('reversal')) > 0 ? Number(q.get('reversal')) : null;
+  if (q.has('penalty')) PENALTY.enabled = !['off', '0', 'false'].includes(q.get('penalty'));   // ?penalty=off disables the horizontal-error penalty
+  if (num('penaltyThreshold') !== undefined) PENALTY.horizontalThreshold = num('penaltyThreshold');
   if (num('seed') !== undefined) cfg.seed = num('seed');
   if (num('maxTrial') !== undefined) cfg.maxTrialSeconds = num('maxTrial');
   if (num('skipAfter') !== undefined) cfg.skipButtonAfterSeconds = num('skipAfter');

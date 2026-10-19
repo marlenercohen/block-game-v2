@@ -13,6 +13,8 @@ import { SESSION, applyUrlOverrides } from '../src/session_config.js';
 import { TUTORIAL_STEPS, TUTORIAL_TOWERS } from '../src/tutorial.js';
 import { BlockTracker } from '../src/analysis.js';
 import { applyPreset, PRESETS } from '../src/presets.js';
+import { horizontalError, exceedsThreshold, penaltySlotPosition, PENALTY_LAYOUT } from '../src/penalty.js';
+import { PENALTY } from '../src/experiment.js';
 import { faceVisibility } from './visibility.mjs';
 await initPhysics();
 let fails = 0;
@@ -208,7 +210,7 @@ console.log('--- 16. v2.2: weaker weak hits, 100 trials, colour-rule reversal af
   ok(near(P(0, 'novel', 0.8, 0.2, 'reversed').multiplier, maxM) && P(0, 'novel', 0.2, 0.2, 'reversed').multiplier < 0.35 * maxM && near(P(1, 'familiar', 0.2, 0.8, 'reversed').multiplier, maxM), 'the impulse calculation uses the current phase: after the reversal blue is strongest at 0.8 and red at 0.2');
   ok(near(P(0.5, 'novel', 0.5, 0.2, 'initial').multiplier, P(0.5, 'novel', 0.5, 0.2, 'reversed').multiplier), 'the middle colour (cue 0.5, also used in the tutorial) is unaffected by the reversal');
   // participant instructions
-  const txt = TUTORIAL_STEPS.map(s => s.text).join('\n'); ok(/may sometimes change/.test(txt) && !/revers|after trial|trial 60|blue.*left|left.*blue|red.*right/i.test(txt), 'instructions say the patterns may sometimes change without revealing the colour mapping, the familiarity mapping beyond the tutorial, or the reversal trial');
+  const txt = TUTORIAL_STEPS.map(s => s.text).join('\n').replace('{{PENALTY}}', ''); ok(/may sometimes change/.test(txt) && !/revers|after trial|trial 60|blue.*left|left.*blue|red.*right/i.test(txt), 'instructions say the patterns may sometimes change without revealing the colour mapping, the familiarity mapping beyond the tutorial, or the reversal trial');
   // plan: 100 trials
   const cfg = { towers: TOWERS, nTrials: SESSION.nTrials, orderMode: 'shuffle', imageIds: IMAGES.ids, novelProportion: 0.5, lagChoices: SESSION.lagChoices, phaseBreakAfter: SESSION.reversalAfterTrial };
   let bad = 0, worstNovel = [0.5, 0.5], worstCue = 0, lagsSeen = new Set(), tmax = 0, distinct = 0, minDistinct = 1e9; const N = 60;
@@ -238,6 +240,27 @@ console.log('--- 16. v2.2: weaker weak hits, 100 trials, colour-rule reversal af
   ok(won.optimal === TOWERS.length && meanOf(res.optimal) >= 5 && meanOf(res.optimal) <= 11, `towers can be cleared with well-placed hits (all ${TOWERS.length} cleared; mean ${meanOf(res.optimal).toFixed(1)} hits)`);
   ok(meanOf(res.ignoreColor) >= 2.5 * meanOf(res.optimal) && meanOf(res.random) >= 3.5 * meanOf(res.optimal) && meanOf(res.poor) >= 8 * meanOf(res.optimal), 'ignoring the colour rule, random clicking and deliberately poor clicking take >= 2.5x / 3.5x / 8x as many hits as optimal placement');
   ok(offPlatformByPoor / poorHits < 0.05, 'repeated ineffective hits rarely knock blocks off the platform (< 0.05 blocks per poor hit, from the physics alone)');
+  applyPreset('v21'); }
+
+console.log('--- 17. v2.3: horizontal-error penalty (pure rules and layout)');
+{ applyPreset('v23');
+  ok(PENALTY.enabled && PENALTY.horizontalThreshold === 0.25 && SESSION.nTrials === 100 && SESSION.reversalAfterTrial === 60 && EFFECT.model === 'product', 'preset v23: penalty on, threshold 0.25 (configurable), 100 trials, reversal after 60, multiplicative effect');
+  ok(exceedsThreshold(horizontalError(0.46, 0, 'initial')) && exceedsThreshold(horizontalError(0.99, 0, 'initial')) && !exceedsThreshold(horizontalError(0.2, 0, 'initial')), 'error greater than 0.25 triggers the penalty, small errors do not');
+  const exactCases = [[0.45, 0, 'initial'], [0.55, 1, 'initial'], [0.75, 0.5, 'initial'], [0.25, 0.5, 'initial'], [0.9, 0.75, 'initial'], [0.55, 0, 'reversed'], [0.45, 1, 'reversed'], [0.9, 0.25, 'reversed'], [0.6, 0.75, 'reversed']];   // |u - optimum| = 0.25 in each (up to float noise)
+  ok(exactCases.every(([u, c, ph]) => Math.abs(horizontalError(u, c, ph) - 0.25) < 1e-9 && !exceedsThreshold(horizontalError(u, c, ph))), 'an error of exactly 0.25 does NOT trigger the penalty (blue/mid/red/intermediate cues, both phases, float noise tolerated)');
+  ok(exceedsThreshold(0.2500001) && exceedsThreshold(0.26) && !exceedsThreshold(0.2499999), 'threshold comparison is strict (> 0.25)');
+  ok(exceedsThreshold(0.3, 0.25) && !exceedsThreshold(0.3, 0.35) && exceedsThreshold(0.3, 0.2), 'the threshold is a parameter (PENALTY.horizontalThreshold / ?penaltyThreshold=)');
+  const phaseCases = [[0, 0.2, 'initial', false], [0, 0.2, 'reversed', true], [0, 0.8, 'initial', true], [0, 0.8, 'reversed', false], [1, 0.8, 'initial', false], [1, 0.8, 'reversed', true], [1, 0.2, 'reversed', false], [0.5, 0.5, 'reversed', false]];
+  ok(phaseCases.every(([c, u, ph, pen]) => exceedsThreshold(horizontalError(u, c, ph)) === pen), 'the optimum used for the penalty follows the current colour rule: blue 0.2 / red 0.8 before the reversal, blue 0.8 / red 0.2 after it');
+  ok(exceedsThreshold(horizontalError(0.5, 0, 'initial')) && !exceedsThreshold(horizontalError(0.5, 0.25, 'initial')) , 'penalty depends only on the horizontal position (checked with the face centre: blue penalised, 0.25 cue not)');
+  // layout
+  const S = PENALTY.blockSize, pos = Array.from({ length: 96 }, (_, i) => penaltySlotPosition(i)); let overlap = 0;
+  for (let i = 0; i < pos.length; i++) for (let j = i + 1; j < pos.length; j++) if (Math.abs(pos[i].x - pos[j].x) < S - 1e-9 && Math.abs(pos[i].y - pos[j].y) < S - 1e-9 && Math.abs(pos[i].z - pos[j].z) < S - 1e-9) overlap++;
+  ok(overlap === 0, 'the first 96 penalty slots never overlap each other');
+  const plat = CONFIG.platform, within = pos.every(p => Math.abs(p.x) + S / 2 <= plat.size[0] / 2 + 1e-9 && p.z + S / 2 <= plat.center[1] + plat.size[2] / 2 + 1e-9 && p.z - S / 2 >= plat.center[1] - plat.size[2] / 2);
+  ok(within, 'all penalty slots lie on the platform (front strip)');
+  let clash = 0; for (const tw of TOWERS) for (const b of tw.blocks) { const [w, h, d] = b.size, [x, y, z] = b.pos; for (let i = 0; i < PENALTY_LAYOUT.perLayer; i++) { const p = pos[i]; if (Math.abs(p.x - x) < (w + S) / 2 && Math.abs(p.z - z) < (d + S) / 2 && Math.abs(p.y - y) < (h + S) / 2) clash++; } }
+  ok(clash === 0, `the penalty display area (first 24 slots) does not intersect any block of any of the ${TOWERS.length} towers in its starting position`);
   applyPreset('v21'); }
 
 console.log('--- 10. Version 1 is untouched');

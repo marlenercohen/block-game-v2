@@ -12,6 +12,8 @@ Three.js + Rapier (physics) + Vite. Participants click image-bearing blocks of a
 
 4. v2.2 (see README "Version 2.2"): multiplicative hit effectiveness (weak hits much weaker, peak unchanged), 100 trials, colour rule reversed after trial 60, extra instruction sentence, 240-image pool, rule-reconstruction logging. Default preset `v22`; `?preset=v21` / `pilot1` reproduce earlier versions. Sessions from earlier versions have 24 trials and no reversal.
 
+5. v2.3 (README "Version 2.3"): horizontal-error penalty (> 0.25 -> no impulse + one display-only penalty block that must be clicked away before the trial can complete). Default preset `v23`; `?preset=v22` or `?penalty=off` for v2.2 behaviour. Browser tests of older features use `preset=v22`.
+
 ## Image presentation rule (src/plan.js)
 - Each image appears once as novel and at most once more as familiar; after two presentations it is never scheduled again. Tutorial images are a separate pool/history.
 - Familiar slots reuse an image shown exactly once and last shown exactly L trials ago, L from `lagChoices` (1, 2, 3, 5). If no such image exists at any listed lag, the slot becomes novel (logged `fallback: novel_because_no_once_shown_image_at_a_listed_lag`). Consequence: ~56-57% of presentations are novel rather than 50% (the old fallback that reused any earlier image gave off-list lags up to 23 trials and is removed).

@@ -1,7 +1,7 @@
 // Rendering layer (Three.js): scene, fixed camera, lights, block meshes, picking. No physics logic.
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
-import { IMAGES } from './experiment.js';
+import { IMAGES, PENALTY } from './experiment.js';
 
 export class SceneView {
   constructor(canvas) {
@@ -30,6 +30,8 @@ export class SceneView {
     this._buildPlatform();
     this.group = new THREE.Group();   // block meshes of the current tower
     this.scene.add(this.group);
+    this.penaltyGroup = new THREE.Group(); this.scene.add(this.penaltyGroup);   // display-only penalty cubes (no physics bodies)
+    this.penaltyMeshes = new Map(); this.lastPenaltyHit = null;
     this.meshes = [];   // pickable mesh per block (for soft blocks: the deformable inner box)
     this.roots = [];    // object whose pose follows the body (== mesh)
     this._texCache = new Map();
@@ -75,7 +77,7 @@ export class SceneView {
   }
 
   /** Hide/show the whole scene (tower and platform): the tower must not be visible behind the start cross. */
-  setSceneVisible(on) { this.group.visible = on; this.platform.visible = on; }
+  setSceneVisible(on) { this.group.visible = on; this.platform.visible = on; this.penaltyGroup.visible = on; }
 
   /** Create meshes for every block of a Simulation. `images` maps imageId -> loaded HTMLImageElement. */
   buildBlocks(sim, images) {
@@ -122,7 +124,27 @@ export class SceneView {
     this.group.updateMatrixWorld(true);
   }
 
-  render() { this.renderer.render(this.scene, this.camera); }
+  // ---- penalty cubes: purely visual objects at fixed slots; they follow no physics, so they can neither disturb the tower nor fall off ----
+  addPenaltyBlock(id, pos) {
+    const s = PENALTY.blockSize, mat = new THREE.MeshStandardMaterial({ color: PENALTY.color, roughness: 0.8, emissive: 0xffb020, emissiveIntensity: 1 });
+    const m = new THREE.Mesh(new THREE.BoxGeometry(s, s, s), mat); m.castShadow = true; m.receiveShadow = true;
+    m.position.set(pos.x, pos.y, pos.z); m.userData.penaltyId = id; m.userData.born = performance.now(); m.scale.setScalar(0.01);
+    this.penaltyGroup.add(m); this.penaltyMeshes.set(id, m); return m;
+  }
+  removePenaltyBlock(id) { const m = this.penaltyMeshes.get(id); if (m) { m.userData.dying = performance.now(); this.penaltyMeshes.delete(id); this._dying = (this._dying ?? []).concat(m); } }
+  clearPenaltyBlocks() {
+    for (const m of [...this.penaltyMeshes.values(), ...(this._dying ?? [])]) { this.penaltyGroup.remove(m); m.geometry.dispose(); m.material.dispose(); }
+    this.penaltyMeshes.clear(); this._dying = [];
+  }
+  _animatePenalties(now) {
+    for (const m of this.penaltyMeshes.values()) {                       // pop-in with a brief warm highlight that fades out
+      const age = now - m.userData.born, t = Math.min(1, age / 250); m.scale.setScalar(t < 1 ? 1.15 * Math.sin(t * Math.PI / 2) : 1 + 0.15 * Math.max(0, 1 - (age - 250) / 150));
+      m.material.emissiveIntensity = Math.max(0, 1 - age / PENALTY.flashMs);
+    }
+    if (this._dying?.length) this._dying = this._dying.filter(m => { const t = (now - m.userData.dying) / 150; if (t >= 1) { this.penaltyGroup.remove(m); m.geometry.dispose(); m.material.dispose(); return false; } m.scale.setScalar(1 - t); return true; });
+  }
+
+  render() { this._animatePenalties(performance.now()); this.renderer.render(this.scene, this.camera); }
 
   /** Nearest visible block surface under a client-space pixel. Returns { block, localPoint, normal (face normal in the block frame) } or null if the
    *  platform/background is hit first; in that case `this.lastPlatformHit` holds the platform point under the ray (or null). */
@@ -130,9 +152,10 @@ export class SceneView {
     const r = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.camera);
-    const hits = this.raycaster.intersectObjects([this.platform, ...this.meshes.filter((m, i) => this.roots[i].visible)], false);
-    this.lastPlatformHit = null;
+    const hits = this.raycaster.intersectObjects([this.platform, ...this.meshes.filter((m, i) => this.roots[i].visible), ...this.penaltyMeshes.values()], false);
+    this.lastPlatformHit = null; this.lastPenaltyHit = null;
     if (!hits.length) return null;
+    if (hits[0].object.userData.penaltyId !== undefined) { this.lastPenaltyHit = hits[0].object.userData.penaltyId; return null; }   // a penalty cube is the nearest thing under the pointer (main.js checks lastPenaltyHit)
     if (!hits[0].object.userData.block) { this.lastPlatformHit = hits[0].point.clone(); return null; }
     const h = hits[0];
     return { block: h.object.userData.block, localPoint: h.object.worldToLocal(h.point.clone()), normal: h.face.normal.clone() };

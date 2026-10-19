@@ -12,7 +12,7 @@ const b = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args
 const p = await b.newPage(); await p.setViewport({ width: 1100, height: 700 });
 const errs = []; p.on('pageerror', e => errs.push(e.message)); p.on('console', m => { if (m.type() === 'error') errs.push(m.text()); });
 const cdp = await p.createCDPSession(); await cdp.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: DL });
-await p.goto(`${BASE}?trials=8&reversal=4&seed=31&maxTrial=40&pause=300&order=sequence&towers=1,2,3,4,5,6,7,8&tutorial=${TUT ? 1 : 0}`, { waitUntil: 'domcontentloaded' }); await sleep(3500);
+await p.goto(`${BASE}?trials=8&reversal=4&seed=31&maxTrial=40&pause=300&order=sequence&towers=1,2,3,4,5,6,7,8&tutorial=${TUT ? 1 : 0}&preset=v22`, { waitUntil: 'domcontentloaded' }); await sleep(3500);
 const ev = f => p.evaluate(f);
 const vis = sel => ev(`(()=>{const e=document.querySelector('${sel}'); return !!e && !e.classList.contains('hidden') && getComputedStyle(e).display!=='none'})()`);
 const waitFor = async (fn, ms = 30000) => { const t = Date.now(); while (Date.now() - t < ms) { if (await fn()) return true; await sleep(50); } return false; };

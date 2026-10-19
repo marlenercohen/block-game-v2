@@ -5,7 +5,8 @@
 import { CONFIG } from './config.js';
 import { TOWERS, labelFor } from './towers.js';
 import { PRESETS, applyPreset, EXPERIMENT_VERSION } from './presets.js';
-import { IMAGES, TUTORIAL_IMAGES, PHYS, CUE, EFFECT, FAMILIARITY, COMPLETION, isTargetBlock, colorForCue, NO_IMAGE_COLOR, ruleForTrial, preferredXForCue } from './experiment.js';
+import { IMAGES, TUTORIAL_IMAGES, PHYS, CUE, EFFECT, FAMILIARITY, COMPLETION, isTargetBlock, colorForCue, NO_IMAGE_COLOR, ruleForTrial, preferredXForCue, PENALTY } from './experiment.js';
+import { horizontalError, exceedsThreshold, penaltySlotPosition } from './penalty.js';
 import { effectiveness, faceCoordinates } from './effectiveness.js';
 import { initPhysics, Simulation } from './physics.js';
 import { SceneView } from './scene.js';
@@ -14,7 +15,7 @@ import { Presenter } from './trial.js';
 import { SESSION, applyUrlOverrides } from './session_config.js';
 import { ImageHistory } from './history.js';
 import { buildPlan } from './plan.js';
-import { TUTORIAL_TOWERS, TUTORIAL_STEPS, INTRO_CARD, CROSS_CAPTION_TUTORIAL } from './tutorial.js';
+import { TUTORIAL_TOWERS, TUTORIAL_STEPS, INTRO_CARD, CROSS_CAPTION_TUTORIAL, PENALTY_INSTRUCTION } from './tutorial.js';
 import { BlockTracker } from './analysis.js';
 import { PointerInput, targetOf, classifyPress } from './interaction.js';
 import { createStartControl } from './fixation.js';
@@ -44,6 +45,7 @@ sess.experimentConfig = {
   blockMass: PHYS.blockMass, cue: CUE, familiarity: FAMILIARITY, effect: EFFECT, completionRule: COMPLETION.rule, impulseMagnitude: CONFIG.impulseMagnitude,
   images: { ids: IMAGES.ids, repeatProbability: IMAGES.repeatProbability, faceFraction: IMAGES.faceFraction, tutorialIds: TUTORIAL_IMAGES.ids },
   block: CONFIG.block, platform: CONFIG.platform, session: { ...SESSION },
+  penalty: { ...PENALTY, appliesTo: 'experimental trials; error = |clicked u - optimal u under the trial colour rule| > horizontalThreshold -> no impulse, one display-only penalty block' },
   colorRule: { reversalAfterTrial: SESSION.reversalAfterTrial, preferredXByCue: { initial: { 0: preferredXForCue(0, 'initial'), 0.25: preferredXForCue(0.25, 'initial'), 0.5: preferredXForCue(0.5, 'initial'), 0.75: preferredXForCue(0.75, 'initial'), 1: preferredXForCue(1, 'initial') }, reversed: { 0: preferredXForCue(0, 'reversed'), 0.25: preferredXForCue(0.25, 'reversed'), 0.5: preferredXForCue(0.5, 'reversed'), 0.75: preferredXForCue(0.75, 'reversed'), 1: preferredXForCue(1, 'reversed') } }, preferredYByFamiliarity: { novel: FAMILIARITY.novelPreferredY, familiar: FAMILIARITY.familiarPreferredY } },
   // versioning: which experiment version produced this file, its parameter preset and the complete tower definitions
   experimentVersion: EXPERIMENT_VERSION[presetName] ?? presetName, preset: { name: presetName, ...PRESETS[presetName] },
@@ -54,6 +56,7 @@ sess.experimentConfig = {
 const game = {
   towerIndex: 0, sim: null, actions: 0, paused: false, assignment: null,
   phase: 'idle',               // 'idle' | 'cross' | 'play'
+  penalties: [],               // ids of the penalty blocks currently on the platform (display-only objects, see penalty.js / scene.js)
   colorPhase: 'initial',       // colour-rule phase of the current trial ('initial' | 'reversed'); set in prepareTrial from the trial's own number, not from the clock or the tutorial length
   status: 'ready',             // 'ready' | 'running'  (after an impulse: ready again after 0.5 s or when settled)
   restTime: 0, runTime: 0,
@@ -79,6 +82,9 @@ function finalizePending() {
   logger.persist();
 }
 
+/** The horizontal-error penalty applies to experimental trials only (not the tutorial, not free play). */
+const penaltyActive = phase => PENALTY.enabled && SESSION_MODE && (phase === 'experiment' || (phase === 'tutorial' && PENALTY.applyInTutorial));
+
 // ---- trial preparation (hidden until the participant starts it) -------------------------------
 /** Build the world and meshes for a trial and open its log record. In session mode the scene stays hidden until the start cross is used. */
 function prepareTrial({ tower, blocks, meta, phase }) {
@@ -89,8 +95,9 @@ function prepareTrial({ tower, blocks, meta, phase }) {
   game.tracker = new BlockTracker(game.sim);
   Object.assign(game, { actions: 0, status: 'ready', restTime: 0, runTime: 0, hold: null, won: false, stuck: false, ending: false, demoNextAt: null });
   game.colorPhase = meta?.colorRulePhase ?? 'initial';
+  view.clearPenaltyBlocks(); game.penalties = []; slotsInUse.clear(); game.hintedClear = false;
   logger.beginTrial({
-    ...meta, phase, colorRulePhase: game.colorPhase, reversalAfterTrial: phase === 'experiment' ? SESSION.reversalAfterTrial : null, completionRule: COMPLETION.rule,
+    ...meta, phase, penaltyActive: penaltyActive(phase), penaltyThreshold: penaltyActive(phase) ? PENALTY.horizontalThreshold : null, colorRulePhase: game.colorPhase, reversalAfterTrial: phase === 'experiment' ? SESSION.reversalAfterTrial : null, completionRule: COMPLETION.rule,
     physics: { impulseMagnitude: CONFIG.impulseMagnitude, holdMs: CONFIG.holdMs, gravity: CONFIG.gravity, fixedDt: CONFIG.fixedDt, blockMass: PHYS.blockMass, blockFriction: CONFIG.block.friction, platformFriction: CONFIG.platform.friction, effect: { ...EFFECT }, preset: presetName, experimentVersion: EXPERIMENT_VERSION[presetName] ?? presetName },
     // everything needed to reconstruct what the player saw and the properties of every block
     blocks: game.sim.blocks.map((b, k) => {
@@ -115,6 +122,7 @@ function startPlay() {
 function onPress({ x, y, pointerType }) {
   if (game.phase !== 'play') return;
   const { hit, platformPoint } = targetOf(view, x, y);
+  if (view.lastPenaltyHit !== null) { removePenaltyBlock(view.lastPenaltyHit, { pointerType, x, y }); return; }   // one click anywhere on a penalty block removes it (not a hit, not an analysis action)
   const hasImage = !!hit?.block.props.imageId;
   const result = classifyPress(hit, { hasHold: !!game.hold, ready: game.status === 'ready', allowWhileMoving: CONFIG.allowClickWhileMoving, paused: game.paused, ended: game.won || game.stuck || game.ending });
   const fc = hit ? faceCoordinates(hit.block.size, hit.localPoint, hit.normal) : null;
@@ -138,6 +146,11 @@ function fire(blockId, localPoint, rec = null, holdMs = 0, normal = null) {
   const block = game.sim.blocks[blockId], pr = block.props;
   const fc = faceCoordinates(block.size, localPoint, normal);
   const eff = effectiveness({ cue: pr.cue, familiarity: pr.familiarity, u: fc.u, v: fc.v, phase: game.colorPhase });   // the CURRENT trial's colour rule
+  if (penaltyActive(logger.active?.phase)) {
+    const err = horizontalError(fc.u, pr.cue, game.colorPhase);                    // horizontal error under the CURRENT colour rule (also after the reversal)
+    if (exceedsThreshold(err)) { applyPenalty(blockId, localPoint, rec, fc, err); return; }
+    if (rec) logger.noteHorizontalError(rec, err, PENALTY.horizontalThreshold);
+  }
   const point = view.worldPointOf(blockId, localPoint);
   const dir = view.pushDirection();
   const magnitude = CONFIG.impulseMagnitude * eff.multiplier;
@@ -154,6 +167,26 @@ function fire(blockId, localPoint, rec = null, holdMs = 0, normal = null) {
   pending = { rec, block, clearedBefore, pos0 };
   game.actions++;
   game.status = 'running'; game.restTime = 0; game.runTime = 0;
+}
+
+/** Penalised press: NO impulse, the clicked block does not move; exactly one display-only penalty block appears in the penalty area. */
+function applyPenalty(blockId, localPoint, rec, fc, err) {
+  const block = game.sim.blocks[blockId], pr = block.props;
+  rec ??= logger.logAttempt({
+    pointerType: 'synthetic', x: null, y: null, world: view.worldPointOf(blockId, localPoint), local: localPoint, blockIndex: blockId, hasImage: true, imageId: pr.imageId,
+    presentationNumber: pr.presentationNumber, familiarity: pr.familiarity, cue: pr.cue, color: hex(pr.color), face: fc.face, u: fc.u, v: fc.v, result: 'pending',
+    first: game.tracker.flagsForAttempt(blockId, true), blockState: game.tracker.stateOf(block), trialContext: game.tracker.context(blockId),
+  });
+  const id = logger.markPenalty(rec, { horizontalError: err, threshold: PENALTY.horizontalThreshold });
+  game.penalties.push(id); view.addPenaltyBlock(id, penaltySlotPosition(slotFor()));
+  game.actions++;
+}
+// slot = lowest free position, so that after removals new blocks refill the gaps and the display stays compact
+const slotsInUse = new Map();
+function slotFor(id) { let i = 0; const used = new Set(slotsInUse.values()); while (used.has(i)) i++; slotsInUse.set(game.penalties.at(-1), i); return i; }
+function removePenaltyBlock(id, click) {
+  if (game.phase !== 'play' || game.ending || !game.penalties.includes(id)) return;
+  game.penalties = game.penalties.filter(q => q !== id); slotsInUse.delete(id); view.removePenaltyBlock(id); logger.markPenaltyRemoved(id, click);
 }
 
 // ---- main loop --------------------------------------------------------------------------------
@@ -177,7 +210,8 @@ function frame(now) {
       game.stuck = true; if (SESSION_MODE) finishTrial('stuck'); else { finalizePending(); logger.endTrial('stuck'); }
     }
     if (SESSION_MODE && !game.ending) {
-      if (game.won) finishTrial('completed');
+      if (game.won && game.penalties.length === 0) finishTrial('completed');          // the trial ends only when the tower is cleared AND every penalty block has been removed
+      else if (game.won) { if (!game.hintedClear) { game.hintedClear = true; ui.setHint('Clear the extra blocks to continue.'); } }
       else {
         const el = (now - game.towerOnsetPerf) / 1000, tutorial = logger.active?.phase === 'tutorial';
         ui.setSkipVisible(el >= SESSION.skipButtonAfterSeconds);
@@ -202,7 +236,7 @@ function stepOnce() {
     game.restTime = sim.isAtRest() ? game.restTime + CONFIG.fixedDt : 0;
     if (game.restTime >= CONFIG.settle.seconds || game.runTime >= CONFIG.settle.maxWaitSeconds) game.status = 'ready';
   }
-  if (remainingTargets() === 0 && !game.won) { game.won = true; if (!SESSION_MODE) { finalizePending(); logger.endTrial('completed'); } }
+  if (remainingTargets() === 0 && !game.won) { game.won = true; logger.markTowerCleared(); if (!SESSION_MODE) { finalizePending(); logger.endTrial('completed'); } }
 }
 
 // ---- session mode: trials with start cross, tutorial, experiment ---------------------------------
@@ -239,7 +273,7 @@ async function runTutorial() {
   const hist = new ImageHistory();                                      // separate history: practice never counts toward experimental familiarity
   for (const step of TUTORIAL_STEPS) {
     if (game.skipTutorial) return;
-    await ui.showCard(step);
+    await ui.showCard({ ...step, text: step.text.replace('{{PENALTY}}', PENALTY.enabled ? PENALTY_INSTRUCTION + '\n\n' : '') });
     if (game.skipTutorial) return;
     if (!step.tower) continue;
     const tower = TUTORIAL_TOWERS[step.tower], imageId = TUTORIAL_IMAGES.ids[step.image], { info } = hist.present([imageId]);
@@ -296,6 +330,7 @@ function loadRandomTower() { let i; do { i = Math.floor(Math.random() * TOWERS.l
 // ---- HUD ----------------------------------------------------------------------------------------
 function updateHud() {
   $('remaining').textContent = remainingTargets();
+  $('penaltyStat').classList.toggle('hidden', !(SESSION_MODE && PENALTY.enabled && logger.active?.penalty?.active)); $('penaltyCount').textContent = game.penalties.length;
   $('actions').textContent = game.actions;
   $('status').textContent = game.paused ? 'paused' : game.status === 'ready' ? 'ready' : 'settling...';
   $('msg').textContent = SESSION_MODE ? '' : game.won ? `Cleared in ${game.actions} action${game.actions === 1 ? '' : 's'}!` : game.stuck ? 'Trial over.' : '';
@@ -336,6 +371,11 @@ window.__game = {
     return view.screenPointOf(m.localToWorld(new m.position.constructor(fx * b.size[0], fy * b.size[1], fz * b.size[2])));
   },
   fireDirect(blockId, localPoint) { fire(blockId, localPoint); },
+  penaltyIds: () => [...game.penalties],
+  /** client-pixel position of a point on a penalty cube (offsets as fractions of its edge) */
+  penaltyScreenPoint(id, fx = 0, fy = 0, fz = 0) { const mm = view.penaltyMeshes.get(id), s = PENALTY.blockSize; return view.screenPointOf(mm.localToWorld(new mm.position.constructor(fx * s, fy * s, fz * s))); },
+  penaltyBoxes: () => [...view.penaltyMeshes.values()].map(mm => ({ id: mm.userData.penaltyId, x: mm.position.x, y: mm.position.y, z: mm.position.z })),
+  PENALTY,
   finishTrial,
 };
 
