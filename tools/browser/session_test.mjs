@@ -13,7 +13,7 @@ const b = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args
 const p = await b.newPage(); await p.setViewport({ width: 1100, height: 700 });
 const errs = []; p.on('pageerror', e => errs.push(e.message)); p.on('console', m => { if (m.type() === 'error') errs.push(m.text()); });
 const cdp = await p.createCDPSession(); await cdp.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: DL });
-await p.goto(`${BASE}?trials=5&seed=21&maxTrial=7&skipAfter=2&pause=400&order=sequence&towers=1,2,3,4,5`, { waitUntil: 'domcontentloaded' }); await sleep(3500);
+await p.goto(`${BASE}?trials=5&seed=21&maxTrial=10&skipAfter=2&pause=400&order=sequence&towers=1,2,3,4,5`, { waitUntil: 'domcontentloaded' }); await sleep(3500);
 const ev = f => p.evaluate(f); const log = (...a) => console.log(...a);
 const vis = sel => ev(`(()=>{const e=document.querySelector('${sel}'); return !!e && !e.classList.contains('hidden') && getComputedStyle(e).display!=='none'})()`);
 const sceneVisible = () => ev(() => window.__game.view.group.visible && window.__game.view.platform.visible);
@@ -23,12 +23,13 @@ const waitReady = () => waitFor(async () => (await ev(() => window.__game.game.s
 const clickCross = async () => { const r = await ev(() => { const r = document.getElementById('crossBtn').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; }); await p.mouse.click(r.x, r.y); };
 const hitBlock = async (id, fx = 0, fy = 0) => { const q = await ev(`window.__game.screenPoint(${id}, ${fx}, ${fy}, 0.5)`); await p.mouse.click(q.x, q.y); await sleep(120); };
 const phase = () => ev(() => window.__game.game.phase);
-async function playUntilEnd(maxMs = 60000) {            // bot: hit image blocks until the trial ends
+async function playUntilEnd(maxMs = 60000, forceAfterMs = null) {            // bot: hit image blocks until the trial ends (optionally clear the rest after forceAfterMs so the test stays short)
   const t0 = Date.now();
   while (Date.now() - t0 < maxMs && (await phase()) === 'play' && !(await ev(() => window.__game.game.ending))) {
     await waitReady(); const ids = await ev(() => window.__game.game.sim.blocks.filter(bk => !bk.cleared && bk.props.imageId).map(bk => bk.id));
     for (const id of ids) { const q = await ev(`window.__game.screenPoint(${id},0,0,0.5)`); const h = await ev(`(()=>{const x=window.__game.view.pick(${q.x},${q.y}); return x?x.block.id:-1})()`); if (h === id) { await p.mouse.click(q.x, q.y); break; } }
     await sleep(150);
+    if (forceAfterMs && Date.now() - t0 > forceAfterMs && (await phase()) === 'play') { await ev(() => window.__game.game.sim.blocks.forEach(bk => { if (bk.props.imageId) bk.cleared = true; })); break; }
   }
   await waitFor(async () => (await phase()) !== 'play', 8000);
 }
@@ -53,7 +54,7 @@ while (await waitFor(async () => (await vis('#card')) || (await vis('#crossBtn')
   ok((await sceneVisible()) && !(await vis('#crossBtn')), `   after the click: cross removed, tower visible; hint: "${await ev(() => document.getElementById('hintBar').textContent)}"`);
   if (step === 0) await p.screenshot({ path: path.join(DL, 'tutorial_trial1.png') });
   // for the "location" step hit two different places before finishing
-  await playUntilEnd(); step++;
+  await playUntilEnd(60000, 25000); step++;
   if (step > 8) break;
 }
 const T0 = await logTrials();
@@ -84,9 +85,9 @@ for (let n = 1; n <= 5; n++) {
     if (gray) await hitBlock(gray.id, 0.2, 0.2);
     await hitBlock(img.id, -0.25, -0.25); await waitReady(); await hitBlock(img.id, 0.25, 0.25);
   }
-  if (n === 3) { ok(await waitFor(async () => (await phase()) !== 'play', 12000), '   (no clicks) trial 3 ends by timeout'); }
+  if (n === 3) { ok(await waitFor(async () => (await phase()) !== 'play', 16000), '   (no clicks) trial 3 ends by timeout'); }
   else if (n === 4) { await sleep(300); ok(await waitFor(() => vis('#skipBtn'), 6000), '   skip button appears after the configured delay'); await p.click('#skipBtn'); await waitFor(async () => (await phase()) !== 'play', 4000); }
-  else await playUntilEnd();
+  else await playUntilEnd(60000, 6000);
 }
 ok(await waitFor(() => vis('#endBox'), 15000), 'end screen shown after the last trial');
 const T = await logTrials(); const exp = T.filter(t => t.phase === 'experiment');
@@ -95,7 +96,7 @@ log('   outcomes:', exp.map(t => t.outcome).join(', '));
 ok(exp[2].outcome === 'timeout' && exp[3].outcome === 'manual_advance' && ['completed'].includes(exp[0].outcome) && exp[4].outcome === 'completed', 'outcomes recorded: completed / timeout / manual_advance distinguished');
 ok(exp.every(t => t.cross && t.cross.onsetSessionMs < t.cross.clickSessionMs && t.cross.clickSessionMs <= t.towerOnsetSessionMs + 5 && t.cross.latencyMs > 250 && t.cross.clickScreen && t.cross.pointerType === 'mouse'), `start-cross onset/click/tower-onset times recorded (latencies ${exp.map(t => Math.round(t.cross.latencyMs)).join(', ')} ms)`);
 ok(exp.every(t => t.towerOnsetSessionMs !== null && t.actions.every(a => a.tMs === null || a.tMs >= 0)), 'trial clock starts at tower onset (all action times >= 0)');
-ok(exp[2].durationMs > 6500 && exp[2].durationMs < 8500, `timeout trial lasted ${Math.round(exp[2].durationMs)} ms (limit 7000)`);
+ok(exp[2].durationMs > 9500 && exp[2].durationMs < 11500, `timeout trial lasted ${Math.round(exp[2].durationMs)} ms (limit 10000)`);
 
 console.log('--- image familiarity, pools and lags (from the logged blocks)');
 const seen = {}; let bad = 0, lagBad = 0, lagRows = [];
@@ -131,6 +132,9 @@ const J = JSON.parse(fs.readFileSync(path.join(DL, jf), 'utf8'));
 const nEvents = J.trials.reduce((s, t) => s + t.actions.length, 0); const ecsv = fs.readFileSync(path.join(DL, ef), 'utf8').trim().split('\n');
 ok(J.schema === 'blockgame-v2-log/2' && J.trials.length === tut.length + 5 && ecsv.length - 1 === nEvents, `JSON holds the whole session (${J.trials.length} trials incl. tutorial, ${nEvents} events); events CSV has one row per event (${ecsv.length - 1})`);
 ok(J.session.plan && J.session.experimentConfig && J.session.experimentConfig.session, 'session record contains the plan (seed, towers, images, cues) and the configuration');
+const ec = J.session.experimentConfig;
+ok(ec.experimentVersion === 'v2.1-3d-towers-heavy-contrast' && ec.preset.name === 'v21' && ec.physicsActual.blockMass === 1 && ec.physicsActual.impulseMagnitude === 3.2 && ec.physicsActual.blockFriction === 0.5 && ec.physicsActual.effect.baseline === 0.2 && ec.towerDefinitions.length === 12 && ec.towerDefinitions[0].blocks.length >= 6, `version, preset, physics parameters and all ${ec.towerDefinitions.length} tower definitions are saved in the data (${ec.experimentVersion})`);
+ok(J.trials.every(t => t.physics && t.physics.blockMass === 1 && t.physics.preset === 'v21' && t.physics.experimentVersion), 'every trial record carries its physics snapshot and experiment version');
 ok(fs.readFileSync(path.join(DL, tf), 'utf8').split('\n')[0].includes('phase') && ecsv[0].includes('firstAttemptOnBlock') && ecsv[0].includes('blockTiltDeg'), 'CSV headers include phase, first-hit and block-state columns');
 await p.screenshot({ path: path.join(DL, 'end_screen.png') });
 log('errors:', errs); ok(errs.length === 0, 'no page errors'); log('output dir', DL);

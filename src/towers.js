@@ -7,12 +7,12 @@
 //          true / 'any'  -> an image chosen by the presenter (new with prob 1-repeatProbability, else a previously seen one)
 //          'novel'       -> always an image never shown before in this session (novel images favour hits near the bottom)
 //          'familiar'    -> an already-seen image (falls back to novel if none exists yet) (familiar images favour hits near the top)
-// All blocks have the same mass (experiment.js BLOCK_MASS). Blocks are listed bottom-up, placed in exact contact.
+// All blocks have the same mass (experiment.js PHYS.blockMass). Blocks are listed bottom-up, placed in exact contact.
 const W = 1.2, H = 1.2, D = 0.9, Z = -0.55;           // standard block: 1.2 x 1.2 front face
 const B = (x, y, extra = {}) => ({ size: [W, H, D], pos: [x, y, Z], cue: 0.5, image: false, ...extra });
 const y = k => H / 2 + k * H;                         // centre height of layer k
 
-export const TOWERS = [
+export const PILOT1_TOWERS = [
   {
     name: 'stack of 3, middle block has an image',
     blocks: [B(0, y(0)), B(0.1, y(1), { cue: 0.25, image: true }), B(-0.1, y(2))],
@@ -57,6 +57,13 @@ export const TOWERS = [
   { name: 'row of three separate image blocks', blocks: [B(-1.5, y(0), { cue: 'random', image: true }), B(0, y(0), { cue: 'random', image: true }), B(1.5, y(0), { cue: 'random', image: true })] },
   { name: 'two image blocks side by side with a gray block across the top', blocks: [B(-0.65, y(0), { cue: 'random', image: true }), B(0.65, y(0), { cue: 'random', image: true }), B(0, y(1))] },
 ];
+
+import { V21_TOWERS } from './towers_v21.js';
+
+/** Tower sets: 'v21' (second pilot design, default) and 'pilot1' (the ten simple towers of the first human pilot, kept for comparison). TOWERS holds the active set. */
+export const TOWER_SETS = { pilot1: PILOT1_TOWERS, v21: V21_TOWERS };
+export const TOWERS = [...V21_TOWERS];
+export function selectTowerSet(name) { TOWERS.splice(0, TOWERS.length, ...TOWER_SETS[name]); }
 
 /** Player-facing label: deliberately uninformative. */
 export const labelFor = i => `Tower ${i + 1}`;

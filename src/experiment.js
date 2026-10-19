@@ -2,7 +2,8 @@
 import IMAGE_IDS from './image_ids.js';
 
 // ---- mass: every block has the same total mass and a uniform mass distribution ----------------------
-export const BLOCK_MASS = 0.432;         // = V1 blue density 1 x a 1.2 x 0.6 x 0.6 block. Same for every block, whatever its size or image.
+// Same total mass for every block, whatever its size or image (mutable object so presets can change it; see src/presets.js).
+export const PHYS = { blockMass: 1.0 };
 
 // ---- colour cue (blue -> purple -> red) -------------------------------------------------------------
 // A block's cue value c is in [0, 1]: 0 = blue, 1 = red, intermediate values = purples. Set `cue` per block in src/towers.js
@@ -46,11 +47,11 @@ export const preferredYForFamiliarity = f => (f === 'familiar' ? FAMILIARITY.fam
 // with G a smooth bump: exp(-d^2 / (2 width^2)) (width = standard deviation in normalised face units). Additive: either cue helps by itself.
 // Impulse magnitude = CONFIG.impulseMagnitude (config.js, 3.0 as in V1) * multiplier. Direction is unchanged. Worst case ~ baseline (> 0).
 export const EFFECT = {
-  baseline: 0.25,
-  horizontalAmplitude: 0.975,
-  verticalAmplitude: 0.975,
-  horizontalWidth: 0.22,
-  verticalWidth: 0.22,
+  baseline: 0.2,
+  horizontalAmplitude: 1.0,
+  verticalAmplitude: 1.0,
+  horizontalWidth: 0.2,
+  verticalWidth: 0.2,
 };
 // shape of the bump; replace to try other tuning curves (must return 1 at d = 0 and fall toward 0)
 export const bump = (d, width) => Math.exp(-(d * d) / (2 * width * width));

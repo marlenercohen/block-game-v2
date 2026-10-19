@@ -2,11 +2,12 @@
 import { CUE } from './experiment.js';
 
 export const SESSION = {
+  preset: 'v21',                   // physics/effect/tower-set version (src/presets.js): 'v21' (default) or 'pilot1' (the first human pilot); also ?preset=pilot1
   mode: 'session',                 // 'session' = intro -> tutorial -> N experimental trials -> end screen;  'free' = the original single-tower mode (tower menu, Reset, Demo Mode)
   tutorial: true,                  // run the tutorial before the experimental trials
   nTrials: 24,                     // number of experimental trials
   // which towers (indices into TOWERS in towers.js) are used and in what order: 'shuffle' = shuffled passes through towerOrder (no immediate repeat), 'sequence' = in order, cycling
-  towerOrder: [0, 1, 3, 4, 5, 6, 7, 8, 9],     // Tower 3 (the bridge, index 2) is left out of the pilot order: it needs ~7 hits for a good placement but over 20 for a bad one
+  towerOrder: null,                // null = every tower of the active set; otherwise indices into TOWERS (the preset sets it)
   orderMode: 'shuffle',
   // images: proportion of image presentations that are novel (first presentation) - the rest are familiar (repeats), at a lag drawn from lagChoices (in trials)
   novelProportion: 0.5,
@@ -18,8 +19,8 @@ export const SESSION = {
   // explicit control of individual trials (optional): explicitTrials[t] = { tower: index, slots: [ { image: 'novel' | 'familiar' | { lag: 3 } | 'ID_1234', cue: 0.25 }, ... ] }
   explicitTrials: null,
   // timing
-  maxTrialSeconds: 60,             // a trial ends automatically (outcome 'timeout') after this long
-  skipButtonAfterSeconds: 25,      // a small "Next tower" button appears after this long (outcome 'manual_advance')
+  maxTrialSeconds: 90,             // a trial ends automatically (outcome 'timeout') after this long
+  skipButtonAfterSeconds: 30,      // a small "Next tower" button appears after this long (outcome 'manual_advance')
   completionPauseMs: 1200,         // how long the cleared tower stays visible after the last block leaves
   timeoutPauseMs: 1200,
   // trial start: how the participant starts a trial. Human version: click/tap the central plus. A future monkey version can set mode 'gaze' and

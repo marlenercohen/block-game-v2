@@ -5,7 +5,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { effectiveness } from '../../src/effectiveness.js';
-import { BLOCK_MASS } from '../../src/experiment.js';
+import { PHYS } from '../../src/experiment.js';
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const DL = fs.mkdtempSync(path.join(os.tmpdir(), 'v2dl_'));
@@ -27,12 +27,13 @@ console.log('--- A. clicks on blocks WITHOUT image: no effect, no hit, but logge
 await sel(0); await sleep(500);
 const info = await ev(() => window.__game.game.sim.blocks.map(b => ({ id: b.id, img: !!b.props.imageId, cue: b.props.cue })));
 const plain = info.find(x => !x.img), imaged = info.find(x => x.img);
+const plainFrontZ = await ev(`(()=>{const b=window.__game.game.sim.blocks[${plain.id}]; return b.spec.pos[2] + b.size[2] / 2})()`);
 const posBefore = await ev(() => JSON.stringify(window.__game.game.sim.blocks.map(b => b.body.translation())));
 const targets = [[-0.3, 0.25], [0.3, -0.25], [0, 0]];                         // (fx, fy) on the +z face -> expected u = fx+0.5, v = fy+0.5
 for (const [fx, fy] of targets) { const q = await ev(`window.__game.screenPoint(${plain.id}, ${fx}, ${fy}, 0.5)`); await clickAt(q); const a = (await trials()).at(-1).actions.at(-1);
   ok(a.eventType === 'non_actionable' && a.actionable === false && !a.impulseApplied && a.blockIndex === plain.id && a.hasImage === false && a.imageId === null, `plain-block click at face (${fx + 0.5}, ${fy + 0.5}) logged as non_actionable on block ${a.blockIndex}`);
   ok(near(a.screen.x, q.x, 0.01) && near(a.screen.y, q.y, 0.01) && a.face === '+z' && near(a.u, fx + 0.5, 0.02) && near(a.v, fy + 0.5, 0.02), `   logged screen (${a.screen.x}, ${a.screen.y}) = click (${q.x.toFixed(1)}, ${q.y.toFixed(1)}); face ${a.face} u=${a.u} v=${a.v} (expected ${fx + 0.5}, ${fy + 0.5})`);
-  ok(a.world && near(a.world.z, -0.55 + 0.45, 0.01) && a.cue === null && a.color === '#80848c' && a.sessionId && a.trialId && a.actionNumber > 0 && a.tMs > 0, `   world z=${a.world?.z} (front face), no cue and neutral gray ${a.color}, session/trial ids, seq ${a.actionNumber}, t=${a.tMs} ms`); }
+  ok(a.world && near(a.world.z, plainFrontZ, 0.01) && a.cue === null && a.color === '#80848c' && a.sessionId && a.trialId && a.actionNumber > 0 && a.tMs > 0, `   world z=${a.world?.z} (front face), no cue and neutral gray ${a.color}, session/trial ids, seq ${a.actionNumber}, t=${a.tMs} ms`); }
 const posAfter = await ev(() => JSON.stringify(window.__game.game.sim.blocks.map(b => b.body.translation())));
 let t = (await trials()).at(-1);
 ok(posBefore === posAfter && await ev(() => window.__game.game.actions) === 0 && t.hits === 0 && t.nonActionable === 3, `tower unchanged, 0 hits consumed, trial counters: ${JSON.stringify({ attempts: t.attempts, hits: t.hits, nonActionable: t.nonActionable })}`);
@@ -50,7 +51,7 @@ t = (await trials()).at(-1); const h = t.actions.at(-1);
 const exp = effectiveness({ cue: h.cue, familiarity: h.familiarity, u: h.u, v: h.v });
 ok(h.eventType === 'fired' && h.impulseApplied && h.actionable && h.hasImage && h.imageId && (h.presentationNumber === 1) === (h.familiarity === 'novel'), `hit logged: ${JSON.stringify({ type: h.eventType, block: h.blockIndex, image: h.imageId, presentation: h.presentationNumber, familiarity: h.familiarity, cue: h.cue, color: h.color, face: h.face, u: h.u, v: h.v })}`);
 ok(near(h.effectiveness.horizontal, exp.horizontal) && near(h.effectiveness.vertical, exp.vertical) && near(h.effectiveness.multiplier, exp.multiplier), `effectiveness logged ${JSON.stringify(h.effectiveness)} = recomputed from the logged cue/familiarity/u/v`);
-ok(near(h.impulse.magnitude, 1.2 * h.effectiveness.multiplier, 2e-3) && near(h.response.initialSpeed, h.impulse.magnitude / BLOCK_MASS, 0.02), `impulse magnitude ${h.impulse.magnitude} = base 1.2 x multiplier; initial speed ${h.response.initialSpeed} = impulse / mass ${BLOCK_MASS}; direction ${JSON.stringify(h.impulse.direction)}`);
+ok(near(h.impulse.magnitude, (await ev(() => window.__game.CONFIG.impulseMagnitude)) * h.effectiveness.multiplier, 2e-3) && near(h.response.initialSpeed, h.impulse.magnitude / PHYS.blockMass, 0.02), `impulse magnitude ${h.impulse.magnitude} = base impulse x multiplier; initial speed ${h.response.initialSpeed} = impulse / mass ${PHYS.blockMass}; direction ${JSON.stringify(h.impulse.direction)}`);
 await waitReady(); await sleep(200);
 await ev(`window.__game.loadTower(0)`); await sleep(300);   // next action/trial boundary finalises the consequence fields
 h.response = (await trials()).find(tt => tt.trialNumber === t.trialNumber).actions.at(-1).response;
@@ -72,7 +73,7 @@ for (const tt of T) { if (tt.reusedAssignment) { rs++; const prev = T.find(x => 
   for (const bl of tt.blocks) if (bl.imageId) { nImg++; const n = (seen[bl.imageId] ?? 0) + 1; if (bl.presentationNumber !== n || bl.familiarity !== (n === 1 ? 'novel' : 'familiar')) bad++; seen[bl.imageId] = n; } }
 ok(bad === 0 && nImg > 10, `${T.length} trials, ${nImg} image presentations: presentation numbers and novel/familiar status correct (${bad} violations); ${rs} resets re-showed identical images/colours/status (${resetBad} differences) and did not increase presentation counts`);
 ok(Object.values(seen).some(n => n >= 2) && T.some(tt => tt.blocks.some(bl => bl.familiarity === 'familiar')), 'familiar images occurred; colour cues present in the session: ' + [...new Set(T.flatMap(tt => tt.blocks.filter(bl => bl.hasImage).map(bl => bl.cue)))].sort().join(', '));
-ok(T.every(tt => tt.blocks.every(bl => near(bl.mass, BLOCK_MASS, 1e-5))), `all logged blocks have mass ${BLOCK_MASS}`);
+ok(T.every(tt => tt.blocks.every(bl => near(bl.mass, PHYS.blockMass, 1e-5))), `all logged blocks have mass ${PHYS.blockMass}`);
 
 console.log('--- F. touch');
 await p.setViewport({ width: 1000, height: 650, hasTouch: true }); await sleep(400);

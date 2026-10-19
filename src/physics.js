@@ -1,13 +1,13 @@
 // Physics layer (Version 2): wraps Rapier. Rigid bodies only; no rendering / DOM code so it can be run headless.
 import RAPIER from '@dimforge/rapier3d-compat';
 import { CONFIG } from './config.js';
-import { BLOCK_MASS } from './experiment.js';
+import { PHYS } from './experiment.js';
 
 export async function initPhysics() { await RAPIER.init(); }
 
 export class Simulation {
   /** A fresh world is built for every tower load/reset, so resets are exactly repeatable.
-   *  tower.blocks[i]: { size, pos, cue, color, actionable, imageId, ... } (resolved by the presenter). Every block: mass BLOCK_MASS, uniform. */
+   *  tower.blocks[i]: { size, pos, cue, color, actionable, imageId, ... } (resolved by the presenter). Every block: mass PHYS.blockMass, uniform. */
   constructor(tower) {
     this.world = new RAPIER.World({ x: 0, y: CONFIG.gravity, z: 0 });
     this.world.timestep = CONFIG.fixedDt;
@@ -28,7 +28,7 @@ export class Simulation {
         RAPIER.RigidBodyDesc.dynamic().setTranslation(...spec.pos).setCanSleep(true).setCcdEnabled(true));
       this.world.createCollider(
         RAPIER.ColliderDesc.cuboid(sx / 2, sy / 2, sz / 2)
-          .setMass(BLOCK_MASS)   // uniform box: centre of mass at the geometric centre, inertia of a solid box of this mass
+          .setMass(PHYS.blockMass)   // uniform box: centre of mass at the geometric centre, inertia of a solid box of this mass
           .setFriction(CONFIG.block.friction).setRestitution(CONFIG.block.restitution), body);
       return { id, spec, props: spec, size: spec.size, body, mass: body.mass(), cleared: false, removed: false };
     });

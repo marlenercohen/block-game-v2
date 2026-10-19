@@ -4,7 +4,8 @@
 // The hit mechanics (location-dependent impulse effectiveness, object-centred hit coordinates, image/colour rendering, physics) are identical in both modes.
 import { CONFIG } from './config.js';
 import { TOWERS, labelFor } from './towers.js';
-import { IMAGES, TUTORIAL_IMAGES, BLOCK_MASS, CUE, EFFECT, FAMILIARITY, COMPLETION, isTargetBlock, colorForCue, NO_IMAGE_COLOR } from './experiment.js';
+import { PRESETS, applyPreset, EXPERIMENT_VERSION } from './presets.js';
+import { IMAGES, TUTORIAL_IMAGES, PHYS, CUE, EFFECT, FAMILIARITY, COMPLETION, isTargetBlock, colorForCue, NO_IMAGE_COLOR } from './experiment.js';
 import { effectiveness, faceCoordinates } from './effectiveness.js';
 import { initPhysics, Simulation } from './physics.js';
 import { SceneView } from './scene.js';
@@ -19,7 +20,9 @@ import { PointerInput, targetOf, classifyPress } from './interaction.js';
 import { createStartControl } from './fixation.js';
 import * as ui from './screens.js';
 
-applyUrlOverrides(SESSION);
+const presetName = new URLSearchParams(location.search).get('preset') ?? SESSION.preset;
+applyPreset(presetName);                 // physics, effect size and tower set of this experiment version
+applyUrlOverrides(SESSION);              // then any other URL options
 const SESSION_MODE = SESSION.mode === 'session';
 document.body.classList.toggle('session', SESSION_MODE);
 document.body.classList.toggle('kiosk', !!SESSION.kiosk);
@@ -38,9 +41,13 @@ await Promise.all([...IMAGES.ids.map(id => load('images', id)), ...TUTORIAL_IMAG
 const sess = logger.data.session;
 sess.mode = SESSION.mode;
 sess.experimentConfig = {
-  blockMass: BLOCK_MASS, cue: CUE, familiarity: FAMILIARITY, effect: EFFECT, completionRule: COMPLETION.rule, impulseMagnitude: CONFIG.impulseMagnitude,
+  blockMass: PHYS.blockMass, cue: CUE, familiarity: FAMILIARITY, effect: EFFECT, completionRule: COMPLETION.rule, impulseMagnitude: CONFIG.impulseMagnitude,
   images: { ids: IMAGES.ids, repeatProbability: IMAGES.repeatProbability, faceFraction: IMAGES.faceFraction, tutorialIds: TUTORIAL_IMAGES.ids },
   block: CONFIG.block, platform: CONFIG.platform, session: { ...SESSION },
+  // versioning: which experiment version produced this file, its parameter preset and the complete tower definitions
+  experimentVersion: EXPERIMENT_VERSION[presetName] ?? presetName, preset: { name: presetName, ...PRESETS[presetName] },
+  physicsActual: { blockMass: PHYS.blockMass, impulseMagnitude: CONFIG.impulseMagnitude, blockFriction: CONFIG.block.friction, platformFriction: CONFIG.platform.friction, restitution: CONFIG.block.restitution, gravity: CONFIG.gravity, effect: { ...EFFECT } },
+  towerDefinitions: TOWERS.map((t, i) => ({ towerId: i + 1, name: t.name, blocks: t.blocks.map(b => ({ size: b.size, pos: b.pos, image: !!b.image, cue: b.cue })) })),
 };
 
 const game = {
@@ -81,7 +88,7 @@ function prepareTrial({ tower, blocks, meta, phase }) {
   Object.assign(game, { actions: 0, status: 'ready', restTime: 0, runTime: 0, hold: null, won: false, stuck: false, ending: false, demoNextAt: null });
   logger.beginTrial({
     ...meta, phase, completionRule: COMPLETION.rule,
-    physics: { impulseMagnitude: CONFIG.impulseMagnitude, holdMs: CONFIG.holdMs, gravity: CONFIG.gravity, fixedDt: CONFIG.fixedDt, blockMass: BLOCK_MASS, effect: { ...EFFECT } },
+    physics: { impulseMagnitude: CONFIG.impulseMagnitude, holdMs: CONFIG.holdMs, gravity: CONFIG.gravity, fixedDt: CONFIG.fixedDt, blockMass: PHYS.blockMass, blockFriction: CONFIG.block.friction, platformFriction: CONFIG.platform.friction, effect: { ...EFFECT }, preset: presetName, experimentVersion: EXPERIMENT_VERSION[presetName] ?? presetName },
     // everything needed to reconstruct what the player saw and the properties of every block
     blocks: game.sim.blocks.map((b, k) => {
       const e = b.props.imageId ? effectiveness({ cue: b.props.cue, familiarity: b.props.familiarity, u: 0.5, v: 0.5 }) : null, p = b.props;

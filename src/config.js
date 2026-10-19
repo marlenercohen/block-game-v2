@@ -6,7 +6,7 @@ export const CONFIG = {
     gravity: -9.81,
 
   // ---- THE FORCE: magnitude of the impulse applied to the clicked block (mass*velocity units) ----
-  impulseMagnitude: 1.2,
+  impulseMagnitude: 3.2,
   impulseElevationDeg: 0,    // 0 = purely horizontal, "away from camera"; positive tilts upward
   holdMs: 0,                 // mouse must be held this long before the impulse fires (0 = any click fires at once; the experiment uses 500)
 
@@ -22,12 +22,12 @@ export const CONFIG = {
   allowClickWhileMoving: false,
 
   // physical surface properties of every block (V1 blue block values); total mass comes from experiment.js
-  block: { friction: 0.4, restitution: 0.05 },
+  block: { friction: 0.5, restitution: 0.05 },
 
   platform: {
     size: [4.4, 0.6, 3.2],     // full extents x, y, z; top surface sits at y = 0
     center: [0, 0, -0.45],    // x, z of the platform centre
-    friction: 0.4,
+    friction: 0.5,
     restitution: 0.0,
     color: 0xb9bcc2,
   },
