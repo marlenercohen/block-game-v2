@@ -10,6 +10,25 @@ import { mulberry32, shuffled, pick } from './rng.js';
  * any omitted trial/slot is generated automatically).
  * Returns { trials: [ { trialNumber, towerIndex, slots: [ { blockIndex, imageId, cue, role, lagTarget, fallback } ] } ], stats }.
  */
+export const MAX_PRESENTATIONS = 2;   // strict per-session limit: once as novel, at most once more as familiar
+
+/** Checks a complete plan: throws if any image is scheduled more than MAX_PRESENTATIONS times, twice in one trial, or if the 2nd presentation is not marked familiar. Returns the per-image counts. */
+export function validatePlan(plan) {
+  const counts = {}, errors = [];
+  for (const tr of plan.trials) {
+    const seen = new Set();
+    for (const s of tr.slots) {
+      if (seen.has(s.imageId)) errors.push(`${s.imageId} appears twice in trial ${tr.trialNumber}`); seen.add(s.imageId);
+      counts[s.imageId] = (counts[s.imageId] ?? 0) + 1;
+      const expected = counts[s.imageId] === 1 ? 'novel' : 'familiar';
+      if (s.expected && s.expected.familiarity !== expected) errors.push(`${s.imageId} presentation ${counts[s.imageId]} (trial ${tr.trialNumber}) is logged as ${s.expected.familiarity}`);
+    }
+  }
+  for (const [id, n] of Object.entries(counts)) if (n > MAX_PRESENTATIONS) errors.push(`${id} is scheduled ${n} times (limit ${MAX_PRESENTATIONS})`);
+  if (errors.length) throw new Error('Invalid session plan: ' + errors.slice(0, 10).join('; '));
+  return counts;
+}
+
 export function buildPlan(config) {
   const rng = mulberry32(config.seed ?? 1);
   const { towers, nTrials, imageIds, novelProportion = 0.5, lagChoices = [1, 2, 3], cueValues = [0, 0.25, 0.5, 0.75, 1], cuePolicy = 'balanced' } = config;
@@ -32,15 +51,14 @@ export function buildPlan(config) {
       const ex = config.explicitTrials?.[t - 1]?.slots?.[si] ?? {};
       let want = ex.image ?? (blk.image === 'novel' || blk.image === 'familiar' ? blk.image : null);
       let lagTarget = null, imageId = null, role = null, fallback = null;
-      if (typeof want === 'string' && want !== 'novel' && want !== 'familiar') { imageId = want; role = 'explicit'; }
+      if (typeof want === 'string' && want !== 'novel' && want !== 'familiar') { imageId = want; role = 'explicit'; if ((hist.counts[imageId] ?? 0) >= MAX_PRESENTATIONS) throw new Error(`Explicit image ${imageId} on trial ${t} would be its presentation number ${hist.counts[imageId] + 1}; the limit is ${MAX_PRESENTATIONS} per session.`); }
       else {
         if (want && typeof want === 'object') { lagTarget = want.lag; want = 'familiar'; }
         if (!want) want = (t > 1 && rng() >= novelProportion) ? 'familiar' : 'novel';
         if (want === 'familiar') {
           const lags = lagTarget ? [lagTarget] : shuffled(lagChoices, rng);
-          for (const L of lags) { const prevImgs = t - L >= 1 ? (hist.trials[t - L - 1] ?? []).filter(x => !used.has(x) && hist.last[x] === t - L) : []; if (prevImgs.length)   /* candidates: images last shown exactly L trials ago */ { imageId = pick(prevImgs, rng); lagTarget = L; role = 'familiar'; break; } }
-          if (!imageId) { const any = Object.keys(hist.counts).filter(x => !used.has(x)); if (any.length) { imageId = pick(any, rng); role = 'familiar'; fallback = 'any_previous_image'; fallbacks++; } }
-          if (!imageId) { fallback = 'novel_because_no_previous_image'; fallbacks++; want = 'novel'; }
+          for (const L of lags) { const prevImgs = t - L >= 1 ? (hist.trials[t - L - 1] ?? []).filter(x => !used.has(x) && hist.last[x] === t - L && hist.counts[x] === 1) : []; if (prevImgs.length)   /* candidates: images last shown exactly L trials ago */ { imageId = pick(prevImgs, rng); lagTarget = L; role = 'familiar'; break; } }
+          if (!imageId) { fallback = 'novel_because_no_once_shown_image_at_a_listed_lag'; fallbacks++; want = 'novel'; }
         }
         if (want === 'novel') {
           imageId = novelQueue.find(x => !(hist.counts[x] > 0) && !used.has(x)); role = 'novel';
@@ -55,5 +73,7 @@ export function buildPlan(config) {
     slots.forEach(s => { s.expected = info[s.imageId]; if (s.expected.familiarity === 'novel') nNovel++; else nFamiliar++; });
     trials.push({ trialNumber: t, towerIndex: ti, slots });
   }
-  return { trials, stats: { nTrials, novelPresentations: nNovel, familiarPresentations: nFamiliar, fallbacks, distinctImages: Object.keys(hist.counts).length, seed: config.seed ?? 1 } };
+  const plan = { trials, stats: { nTrials, novelPresentations: nNovel, familiarPresentations: nFamiliar, fallbacks, distinctImages: Object.keys(hist.counts).length, seed: config.seed ?? 1 } };
+  validatePlan(plan);
+  return plan;
 }

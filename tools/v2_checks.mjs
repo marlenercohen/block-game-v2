@@ -7,7 +7,7 @@ import { PHYS, EFFECT, CUE, FAMILIARITY, colorForCue, preferredXForCue, preferre
 import { effectiveness, faceCoordinates } from '../src/effectiveness.js';
 import { CONFIG } from '../src/config.js';
 import { ImageHistory } from '../src/history.js';
-import { buildPlan } from '../src/plan.js';
+import { buildPlan, validatePlan } from '../src/plan.js';
 import { IMAGES, TUTORIAL_IMAGES } from '../src/experiment.js';
 import { SESSION, applyUrlOverrides } from '../src/session_config.js';
 import { TUTORIAL_STEPS, TUTORIAL_TOWERS } from '../src/tutorial.js';
@@ -115,6 +115,17 @@ console.log('--- 12. history, plan, tutorial pool');
   const forced = buildPlan({ ...cfg, nTrials: 4, explicitTrials: [{ tower: 0, slots: [{ image: 'ID_1360', cue: 0.25 }] }, { tower: 1, slots: [{ image: 'novel', cue: 1 }, { image: 'ID_1360' }] }], seed: 1 });
   ok(forced.trials[0].slots[0].imageId === 'ID_1360' && forced.trials[0].slots[0].cue === 0.25 && forced.trials[1].slots.some(s => s.imageId === 'ID_1360' && s.expected.familiarity === 'familiar' && s.expected.lagTrials === 1), 'explicit per-trial configuration (image id, cue, novel/repeat) is honoured');
   let threw = false; try { buildPlan({ ...cfg, nTrials: 80, novelProportion: 1, seed: 1 }); } catch (e) { threw = /pool exhausted/.test(e.message); } ok(threw, 'an image pool that is too small for the requested novel presentations is reported, not silently recycled');
+  { let bad = 0, nov = 0, fam = 0, lagsSeen = new Set(), maxCount = 0, seeds = 0;
+    for (let seed = 1; seed <= 300; seed++) { for (const lc of [[1, 2, 3, 5], [1, 2, 3]]) { seeds++;
+      const pl = buildPlan({ ...cfg, nTrials: 24, lagChoices: lc, seed }); const cnt = {};
+      for (const tr of pl.trials) for (const s of tr.slots) { cnt[s.imageId] = (cnt[s.imageId] ?? 0) + 1; if (s.expected.familiarity === 'novel') nov++; else { fam++; lagsSeen.add(s.expected.lagTrials); } }
+      maxCount = Math.max(maxCount, ...Object.values(cnt)); if (Object.values(cnt).some(n => n > 2)) bad++; try { validatePlan(pl); } catch { bad++; } } }
+    ok(bad === 0 && maxCount === 2, `two-presentation limit: ${seeds} plans (300 seeds x 2 lag sets) -> no image scheduled more than twice (max ${maxCount})`);
+    ok([1, 2, 3, 5].every(l => lagsSeen.has(l)) && lagsSeen.size === 4, `repetition lags are exactly 1, 2, 3, 5 (no off-list lags) (seen ${[...lagsSeen].sort((a, b) => a - b).join(',')})`);
+    ok(Math.abs(nov / (nov + fam) - 0.5) < 0.1, `novel/familiar ratio stays near 50/50 (${(100 * nov / (nov + fam)).toFixed(1)}% novel)`);
+    const plTut = buildPlan({ ...cfg, seed: 5 }); ok(!plTut.trials.some(tr => tr.slots.some(s => TUTORIAL_IMAGES.ids.includes(s.imageId))), 'no tutorial image appears in the experimental plan');
+    const broken = buildPlan({ ...cfg, seed: 9 }); broken.trials[10].slots[0].imageId = broken.trials[0].slots[0].imageId; broken.trials[11].slots[0].imageId = broken.trials[0].slots[0].imageId;
+    let caught = false; try { validatePlan(broken); } catch (e) { caught = /more|times|logged/.test(e.message); } ok(caught, 'validatePlan reports an error when an image is scheduled a third time'); }
   const free = TOWERS.filter(t => t.blocks.every(b => b.image !== 'novel' && b.image !== 'familiar')), cfg2 = { ...cfg, towers: free, towerOrder: [...free.keys()] };
   const allNovel = buildPlan({ ...cfg2, novelProportion: 1, nTrials: 10 }), noNovel = buildPlan({ ...cfg2, novelProportion: 0, nTrials: 10 });
   ok(allNovel.stats.familiarPresentations === 0 && noNovel.trials.slice(1).every(t => t.slots.every(s => s.expected.familiarity === 'familiar' || s.fallback)), 'novelProportion 1 -> all novel; 0 -> repeats whenever possible'); }
