@@ -46,10 +46,10 @@ async function botTrial() { await clearTower(); await removeAllPenalties(); awai
 
 const res = {};
 if (TUT) {            // tutorial: instruction text present, no penalties in tutorial trials
-  await p.click('#cardBtn'); await sleep(300); let cardsWithPenaltyText = 0, cards = 0;
-  for (let g = 0; g < 40; g++) { await waitFor(async () => (await vis('#card')) || (await vis('#crossBtn')), 8000); if (await vis('#card')) { const txt = await ev(() => document.getElementById('cardText').textContent); cards++; if (/extra blocks/.test(txt) && /may sometimes change/.test(txt)) cardsWithPenaltyText++; const title = await ev(() => document.getElementById('cardTitle').textContent); await p.click('#cardBtn'); await sleep(250); if (/one more hint/i.test(title)) break; continue; }
+  await p.click('#cardBtn'); await sleep(300); let cardsWithPenaltyText = 0, cardsWithChangeText = 0, cards = 0;
+  for (let g = 0; g < 40; g++) { await waitFor(async () => (await vis('#card')) || (await vis('#crossBtn')), 8000); if (await vis('#card')) { const txt = await ev(() => document.getElementById('cardText').textContent); cards++; if (/dark-gray block/.test(txt) && /once to remove/.test(txt) && /AND clear all/.test(txt)) cardsWithPenaltyText++; if (/may sometimes change/.test(txt)) cardsWithChangeText++; const title = await ev(() => document.getElementById('cardTitle').textContent); await p.click('#cardBtn'); await sleep(250); if (/one more hint/i.test(title)) break; continue; }
     await clickCross(); await sleep(200); for (let k = 0; k < 40 && (await phase()) === 'play'; k++) { await ready(); const l = await imageBlocks(); if (l[0]) await clickFace(l[0].id, 0.5, 0.5); await sleep(80); if ((await state()).won) break; } await waitFor(async () => (await phase()) !== 'play', 8000); }
-  ok(cardsWithPenaltyText === 1, 'last tutorial card contains both the "may sometimes change" and the extra-blocks explanations');
+  ok(cardsWithPenaltyText === 1 && cardsWithChangeText === 1, 'tutorial shows one card explaining the dark-gray penalty blocks and one saying the patterns may sometimes change');
 }
 // ---- trial 1 (initial rule) ----
 ok(await startTrial(), 'trial 1 started');

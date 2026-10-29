@@ -15,7 +15,7 @@ import { Presenter } from './trial.js';
 import { SESSION, applyUrlOverrides } from './session_config.js';
 import { ImageHistory } from './history.js';
 import { buildPlan } from './plan.js';
-import { TUTORIAL_TOWERS, TUTORIAL_STEPS, INTRO_CARD, CROSS_CAPTION_TUTORIAL, PENALTY_INSTRUCTION } from './tutorial.js';
+import { TUTORIAL_TOWERS, TUTORIAL_STEPS, INTRO_CARD, CROSS_CAPTION_TUTORIAL } from './tutorial.js';
 import { BlockTracker } from './analysis.js';
 import { PointerInput, targetOf, classifyPress } from './interaction.js';
 import { createStartControl } from './fixation.js';
@@ -273,7 +273,8 @@ async function runTutorial() {
   const hist = new ImageHistory();                                      // separate history: practice never counts toward experimental familiarity
   for (const step of TUTORIAL_STEPS) {
     if (game.skipTutorial) return;
-    await ui.showCard({ ...step, text: step.text.replace('{{PENALTY}}', PENALTY.enabled ? PENALTY_INSTRUCTION + '\n\n' : '') });
+    if (step.penaltyOnly && !PENALTY.enabled) continue;       // the penalty card is only shown when the penalty is on
+    await ui.showCard(step);
     if (game.skipTutorial) return;
     if (!step.tower) continue;
     const tower = TUTORIAL_TOWERS[step.tower], imageId = TUTORIAL_IMAGES.ids[step.image], { info } = hist.present([imageId]);
