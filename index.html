@@ -33,7 +33,9 @@
     #card h2, #endBox h2 { margin: 0 0 12px; font-size: 22px; color: #2b2f36; }
     #card p, #endBox p { margin: 0 0 18px; font-size: 17px; line-height: 1.5; color: #333; white-space: pre-line; }
     #card button, #endBox button { font: inherit; font-size: 16px; padding: 8px 22px; border-radius: 8px; border: 1px solid #5b6b8c; background: #3d5a99; color: #fff; cursor: pointer; margin-right: 8px; }
-    #endBox button.secondary { background: #fff; color: #3d5a99; }
+    #endBox button.secondary, #card button.secondary { background: #fff; color: #3d5a99; border: 2px solid #3d5a99; }
+    #cardButtons { display: flex; gap: 10px; align-items: center; }
+    #cardButtons button { margin-right: 0; min-width: 110px; }
     #crossBtn { position: relative; width: 220px; height: 220px; border: none; background: transparent; cursor: pointer; padding: 0; }
     #crossBtn::before, #crossBtn::after { content: ''; position: absolute; background: #2b2f36; left: 50%; top: 50%; transform: translate(-50%, -50%); border-radius: 3px; }
     #crossBtn::before { width: 96px; height: 10px; }
@@ -59,7 +61,7 @@
   <div id="hintBar" class="hidden"></div>
   <button id="skipBtn" class="hidden">Next tower</button>
   <div id="screen" class="hidden">
-    <div id="card" class="hidden"><h2 id="cardTitle"></h2><p id="cardText"></p><button id="cardBtn">Continue</button></div>
+    <div id="card" class="hidden"><h2 id="cardTitle"></h2><p id="cardText"></p><div id="cardButtons"><button id="cardBack" class="secondary hidden">Back</button><button id="cardBtn">Continue</button></div></div>
     <button id="crossBtn" class="hidden" aria-label="Click the plus to start"></button>
     <div id="crossHint" class="hidden"></div>
     <div id="endBox" class="hidden"><h2>All done - thank you!</h2><p id="endText">You have finished the game. Please click "Download data" and send the downloaded file to the researcher. Thank you for taking part!</p><button id="endJson">Download data</button><button id="endCsv" class="secondary">Trials CSV</button><button id="endEvents" class="secondary">Events CSV</button></div>

@@ -269,18 +269,27 @@ async function runTrial({ phase, tower, blocks, meta, hint, label }) {
   return outcome;
 }
 
-async function runTutorial() {
-  const hist = new ImageHistory();                                      // separate history: practice never counts toward experimental familiarity
-  for (const step of TUTORIAL_STEPS) {
+/** One practice trial of the tutorial (runs once; going Back and forward again never repeats it). */
+async function runPractice(step, hist) {
+  const tower = TUTORIAL_TOWERS[step.tower], imageId = TUTORIAL_IMAGES.ids[step.image], { info } = hist.present([imageId]);
+  const slot = tower.blocks.findIndex(b => b.image);
+  const blocks = tower.blocks.map((b, k) => (k === slot ? { imageId, ...info[imageId], cue: 0.5, color: colorForCue(0.5), actionable: true, plannedRole: step.role ?? 'novel' } : plainBlock));
+  await runTrial({ phase: 'tutorial', tower, blocks, hint: step.hint, label: 'Practice', meta: { towerId: `tutorial:${step.id}`, set: 'tutorial', towerIndex: null, configId: `tutorial:${step.tower}`, inverted: false, demoMode: false, tutorialStep: step.id } });
+}
+
+/** Intro card + tutorial cards, navigable with Next / Back. Back only moves between instruction screens: it never re-runs a practice trial, resets progress or touches trial data
+ *  (practice trials that were completed are skipped when moving forward again). The moves themselves are listed in session.instructionNavigation. */
+async function runInstructions() {
+  const steps = [{ id: 'intro', ...INTRO_CARD }, ...(SESSION.tutorial ? TUTORIAL_STEPS.filter(s => !s.penaltyOnly || PENALTY.enabled) : [])];
+  const hist = new ImageHistory(), done = new Set(); sess.instructionNavigation = []; let i = 0;       // separate history: practice never counts toward experimental familiarity
+  while (i < steps.length) {
     if (game.skipTutorial) return;
-    if (step.penaltyOnly && !PENALTY.enabled) continue;       // the penalty card is only shown when the penalty is on
-    await ui.showCard(step);
+    const step = steps[i], action = await ui.showCard(step, { canBack: i > 0 });
+    sess.instructionNavigation.push({ card: step.id, action, tSessionMs: logger.sessionMs() });
+    if (action === 'back') { i--; continue; }
     if (game.skipTutorial) return;
-    if (!step.tower) continue;
-    const tower = TUTORIAL_TOWERS[step.tower], imageId = TUTORIAL_IMAGES.ids[step.image], { info } = hist.present([imageId]);
-    const slot = tower.blocks.findIndex(b => b.image);
-    const blocks = tower.blocks.map((b, k) => (k === slot ? { imageId, ...info[imageId], cue: 0.5, color: colorForCue(0.5), actionable: true, plannedRole: step.role ?? 'novel' } : plainBlock));
-    await runTrial({ phase: 'tutorial', tower, blocks, hint: step.hint, label: 'Practice', meta: { towerId: `tutorial:${step.id}`, set: 'tutorial', towerIndex: null, configId: `tutorial:${step.tower}`, inverted: false, demoMode: false, tutorialStep: step.id } });
+    if (step.tower && !done.has(i)) { await runPractice(step, hist); done.add(i); }
+    i++;
   }
 }
 
@@ -301,8 +310,7 @@ async function runExperiment() {
 
 async function runSession() {
   ui.setTrialInfo(null); $('devSession').classList.remove('hidden');
-  await ui.showCard(INTRO_CARD);
-  if (SESSION.tutorial) await runTutorial();
+  await runInstructions();
   await runExperiment();
   ui.setTrialInfo(null); sess.completedAt = new Date().toISOString(); logger.persist(); ui.showEnd();
 }
