@@ -133,7 +133,7 @@ export const V21_TOWERS = [
       I(-0.567, 0.6, -0.457),
       P([2.6, 0.5, 0.9], 0.6, 1.45, -0.65),
       P([1.5, 0.5, 1.5], -1.15, 1.95, -0.627),
-      P([1.5, 0.5, 1.5], 1.112, 1.95, -0.349),
+      P([1.5, 0.5, 1.5], 1.112, 1.95, -0.65),   // v2.3b: was z -0.349 (hanging 0.55 over the beam's front edge); now centred on the beam like the plate on the left, so it no longer falls forward and lands standing on edge in front of the image block (see tools/obstruction_study.mjs)
       I(0.082, 2.8, -0.343),
       P([3.2, 0.5, 0.9], 0.3, 3.65, -0.326),
       P([2.6, 0.5, 0.9], 0.396, 4.15, -0.459),

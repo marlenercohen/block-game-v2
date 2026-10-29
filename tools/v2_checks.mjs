@@ -14,6 +14,8 @@ import { TUTORIAL_STEPS, TUTORIAL_TOWERS } from '../src/tutorial.js';
 import { BlockTracker } from '../src/analysis.js';
 import { applyPreset, PRESETS } from '../src/presets.js';
 import { PENALTY_INSTRUCTION } from '../src/tutorial.js';
+import { playTower, assign } from './obstruction_lib.mjs';
+import { accessibility } from './accessibility.mjs';
 import { horizontalError, exceedsThreshold, penaltySlotPosition, PENALTY_LAYOUT } from '../src/penalty.js';
 import { PENALTY } from '../src/experiment.js';
 import { faceVisibility } from './visibility.mjs';
@@ -267,6 +269,28 @@ console.log('--- 17. v2.3: horizontal-error penalty (pure rules and layout)');
   ok(within, 'all penalty slots lie on the platform (front strip)');
   let clash = 0; for (const tw of TOWERS) for (const b of tw.blocks) { const [w, h, d] = b.size, [x, y, z] = b.pos; for (let i = 0; i < PENALTY_LAYOUT.perLayer; i++) { const p = pos[i]; if (Math.abs(p.x - x) < (w + S) / 2 && Math.abs(p.z - z) < (d + S) / 2 && Math.abs(p.y - y) < (h + S) / 2) clash++; } }
   ok(clash === 0, `the penalty display area (first 24 slots) does not intersect any block of any of the ${TOWERS.length} towers in its starting position`);
+  applyPreset('v21'); }
+
+console.log('--- 18. dynamic obstruction: gray blocks must not be able to wall off the remaining image blocks (hard deadlock = no reachable, horizontally-allowed point)');
+{ applyPreset('v23'); const states = { HARD: 0, CAP: 0, cleared: 0 }; const CUE5 = [0, 0.25, 0.5, 0.75, 1];
+  // 1. initial towers are playable: for several random cue assignments every tower has an image block that can be hit strongly (>= 1.5) from the start, and no block that is entirely hidden unless another image block is in front of it
+  let badStart = 0; TOWERS.forEach((tw, ti) => { for (let k = 0; k < 5; k++) { const sim = new Simulation(assign(tw, 500 + 17 * ti + k)); const acc = accessibility(sim, k % 2 ? 'reversed' : 'initial'); if (Math.max(...acc.map(a => a.bestUseful)) < 1.5) badStart++; } });
+  ok(badStart === 0, 'initial towers are playable: from the start at least one image block can be hit strongly at an allowed position (12 towers x 5 cue assignments, both rule phases)');
+  // 2. regression for the observed obstruction (original tower 11 geometry: plate 4 hanging over the front edge of the beam)
+  const origT11 = { ...TOWERS[10], blocks: TOWERS[10].blocks.map((b, i) => (i === 4 ? { ...b, pos: [1.112, 1.95, -0.349] } : b)) };
+  const seedT11 = 1000 * 10 + 0 + 7, old = playTower(assign(origT11, seedT11), 'best', 'initial', seedT11), neu = playTower(assign(TOWERS[10], seedT11), 'best', 'initial', seedT11);
+  const plate = old.sim.blocks[4], pq = plate.body.rotation(), pp = plate.body.translation();
+  ok(old.state === 'HARD' && Math.abs(Math.abs(pq.x) - 0.7071) < 0.05 && pp.z > -0.5 && pp.y < 1.0, `reproduced the reported obstruction on the ORIGINAL tower 11 geometry: after ${old.hits} good hits the gray plate stands on edge at (${pp.x.toFixed(2)}, ${pp.y.toFixed(2)}, ${pp.z.toFixed(2)}) in front of the last image block and no allowed point is reachable`);
+  ok(neu.state === 'cleared', `same cue assignment and click strategy on the redesigned tower 11: cleared in ${neu.hits} hits`);
+  // 3. sweeps: good play on every tower (both phases), random clicking, deliberately poor clicking
+  const sweep = (towers, strat, phase, K, seed0) => { const r = { HARD: 0, CAP: 0, cleared: 0, hits: [] }; towers.forEach(ti => { for (let k = 0; k < K; k++) { const sd = seed0 + 100 * ti + k, x = playTower(assign(TOWERS[ti], sd), strat, phase, sd); r[x.state]++; if (x.state === 'cleared') r.hits.push(x.hits); } }); return r; };
+  const all = [...TOWERS.keys()], res = {};
+  for (const phase of ['initial', 'reversed']) { res['best ' + phase] = sweep(all, 'best', phase, 8, 3000); res['random ' + phase] = sweep(all, 'random', phase, 3, 4000); res['t11 best ' + phase] = sweep([10], 'best', phase, 40, 5000); res['t11 sloppy ' + phase] = sweep([10], 'sloppy', phase, 6, 6000); }
+  for (const [k, r] of Object.entries(res)) console.log(`  ${k.padEnd(20)} runs ${r.HARD + r.CAP + r.cleared}: cleared ${r.cleared}, hard deadlock ${r.HARD}, hit cap ${r.CAP}; mean hits ${(r.hits.reduce((a, b) => a + b, 0) / Math.max(1, r.hits.length)).toFixed(1)}`);
+  ok(Object.values(res).every(r => r.HARD === 0), `no hard deadlock in any sweep (good play on all 12 towers x 8 cue assignments, random clicking, deliberately poor clicking on tower 11, 40 good-play runs on tower 11; both rule phases)`);
+  ok(res['best initial'].CAP === 0 && res['best reversed'].CAP === 0 && res['t11 best initial'].CAP === 0, 'good play always clears the tower (difficult-but-playable and slow-because-poor-strategy runs are not counted as deadlocks)');
+  ok(Math.abs(meanOfHits(res['t11 best initial']) - 4.1) < 1.0, `tower 11 difficulty unchanged for good play (mean ${meanOfHits(res['t11 best initial']).toFixed(1)} hits; was 4.4 before the redesign over the runs that did not deadlock)`);
+  function meanOfHits(r) { return r.hits.reduce((a, b) => a + b, 0) / Math.max(1, r.hits.length); }
   applyPreset('v21'); }
 
 console.log('--- 10. Version 1 is untouched');
